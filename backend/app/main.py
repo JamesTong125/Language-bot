@@ -1,0 +1,32 @@
+"""FastAPI application entry point."""
+
+import logging
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import get_settings
+from app.routers import account, auth, meta, profile
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    logging.basicConfig(level=settings.log_level)
+
+    app = FastAPI(title="Language Immersion Buddy API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.cors_origin],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
+
+    app.include_router(meta.router)
+    app.include_router(auth.router)
+    app.include_router(profile.router)
+    app.include_router(account.router)
+    return app
+
+
+app = create_app()
