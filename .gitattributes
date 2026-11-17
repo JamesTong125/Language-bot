@@ -1,0 +1,4 @@
+# Keep LF line endings in the repo and working tree. Files are mounted into Linux containers.
+* text=auto eol=lf
+*.ico binary
+*.png binary
