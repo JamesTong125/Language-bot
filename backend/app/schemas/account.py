@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.conversation import ScenarioOut, TurnOut
 from app.schemas.profile import LearnerProfileOut
+from app.schemas.vocab import SummaryOut, VocabOut
 
 
 class DeleteAccountRequest(BaseModel):
@@ -24,17 +25,28 @@ class ExportedSession(BaseModel):
     scenario_title: str
     started_at: datetime
     ended_at: datetime | None
-    summary: str | None
+    summary: SummaryOut | None
     error_rate: float | None
     turns: list[TurnOut]
+
+
+class ExportedReview(BaseModel):
+    rating: int
+    reviewed_at: datetime
+
+
+class ExportedVocab(VocabOut):
+    learner_profile_id: int
+    reviews: list[ExportedReview]
 
 
 class AccountExport(BaseModel):
     """Everything stored about a user. Extend whenever a table gains user data."""
 
-    format_version: int = 2
+    format_version: int = 3
     exported_at: datetime
     user: ExportedUser
     learner_profiles: list[LearnerProfileOut]
     custom_scenarios: list[ScenarioOut]
     sessions: list[ExportedSession]
+    vocab_items: list[ExportedVocab]

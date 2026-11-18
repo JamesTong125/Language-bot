@@ -7,8 +7,13 @@ import type {
   ProfileResponse,
   ProfileUpdate,
   Scenario,
+  ReviewQueue,
   Turn,
   User,
+  VocabFilter,
+  VocabItem,
+  VocabPage,
+  WrapUpResult,
 } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -94,6 +99,25 @@ export const api = {
     request<PracticeSession>("/sessions", { method: "POST", body: json({ scenario_id: scenarioId }) }),
   getSession: (id: number) => request<PracticeSession>(`/sessions/${id}`),
   hint: (id: number) => request<Hint>(`/sessions/${id}/hint`, { method: "POST" }),
+  endSession: (id: number) => request<WrapUpResult>(`/sessions/${id}/end`, { method: "POST" }),
+  getSummary: (id: number) => request<WrapUpResult>(`/sessions/${id}/summary`),
+
+  vocab: (params: { filter?: VocabFilter; q?: string; page?: number; pageSize?: number } = {}) => {
+    const search = new URLSearchParams();
+    if (params.filter && params.filter !== "all") search.set("filter", params.filter);
+    if (params.q) search.set("q", params.q);
+    if (params.page) search.set("page", String(params.page));
+    if (params.pageSize) search.set("page_size", String(params.pageSize));
+    const qs = search.toString();
+    return request<VocabPage>(`/vocab${qs ? `?${qs}` : ""}`);
+  },
+  reviewQueue: (limit = 20) => request<ReviewQueue>(`/vocab/review?limit=${limit}`),
+  review: (id: number, rating: number) =>
+    request<{ item: VocabItem; reviewed_at: string }>(`/vocab/${id}/review`, {
+      method: "POST",
+      body: json({ rating }),
+    }),
+  deleteVocab: (id: number) => request<void>(`/vocab/${id}`, { method: "DELETE" }),
 };
 
 export interface TurnHandlers {

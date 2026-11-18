@@ -11,6 +11,7 @@ PARTNER_PROMPT = "partner_reply_v1"
 OPENING_PROMPT = "partner_opening_v1"
 HINT_PROMPT = "hint_v1"
 ANALYSIS_PROMPT = "analysis_v1"
+WRAPUP_PROMPT = "wrapup_v1"
 
 _LANGUAGE_NAMES = {lang.code: lang.name for lang in LANGUAGES}
 
@@ -118,6 +119,50 @@ def build_analysis_messages(item: AnalysisInput) -> list[Message]:
         {"role": "system", "content": system},
         {"role": "user", "content": f"{context}LEARNER MESSAGE: {item.learner_text}"},
     ]
+
+
+@dataclass(frozen=True)
+class CorrectionText:
+    original: str
+    corrected: str
+    error_type: str
+
+
+WRAPUP_MAX_TURNS = 40
+WRAPUP_MAX_CORRECTIONS = 30
+
+
+def build_wrapup_messages(
+    scene: SceneContext,
+    turns: Sequence[TurnText],
+    corrections: Sequence[CorrectionText],
+    max_vocab: int,
+) -> list[Message]:
+    """Corrections are numbered C1, C2, ... so the model can say which one a word came from.
+
+    Callers must pass at most WRAPUP_MAX_CORRECTIONS corrections, in the same order they
+    will resolve "Cn" ids against.
+    """
+    assert len(corrections) <= WRAPUP_MAX_CORRECTIONS
+    system = render_prompt(
+        WRAPUP_PROMPT,
+        target_language=language_name(scene.target_language),
+        native_language=language_name(scene.native_language),
+        level=scene.level,
+        max_vocab=str(max_vocab),
+    )
+    recent = list(turns)[-WRAPUP_MAX_TURNS:]
+    transcript = "\n".join(
+        f"{'PARTNER' if t.role == 'partner' else 'LEARNER'}: {t.text}" for t in recent
+    )
+    listed = "\n".join(
+        f"C{i}: {c.original} -> {c.corrected} ({c.error_type})"
+        for i, c in enumerate(corrections, start=1)
+    )
+    body = (
+        f"SCENE: {scene.title}\n\nCONVERSATION:\n{transcript}\n\nCORRECTIONS:\n{listed or '(none)'}"
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": body}]
 
 
 def build_hint_messages(

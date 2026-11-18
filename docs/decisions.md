@@ -200,3 +200,70 @@ Result on `openai/gpt-oss-20b`, reasoning effort low: 20/20 (10 cases, 2 runs ea
 "register" shows as "Tone" to learners. Chip colour follows severity (blue, amber, rose)
 and the severity is also given in text for screen readers. Chips are buttons with
 `aria-expanded`, so they work with the keyboard.
+
+## Phase 4: Vocabulary and review
+
+### D30. Scheduler details (`backend/app/srs/scheduler.py`)
+`schedule(item, rating, now) -> item` is pure and returns a new `SrsState`.
+- Every rating updates the ease with the SM-2 formula `ease + 0.1 - (5-q)(0.08 + (5-q)0.02)`,
+  never below 1.3. So a 5 adds 0.1, a 4 keeps it, and a 3 or lower lowers it.
+- Ratings 0 to 2: repetitions reset to 0, interval 1 day.
+- Ratings 3 to 5: repetitions + 1; intervals 1 day, then 6 days, then
+  `round(previous interval * new ease)`. With steady 4s: 1, 6, 15, 38, 95 days.
+- `due_at = now + interval`. New cards have ease 2.5, interval 0, and are due right away.
+`backend/tests/test_scheduler.py` is the specification; the API test replays ratings through
+`POST /vocab/{id}/review` and checks each result against `schedule`.
+
+### D31. Two columns added to `vocab_items` (data model change)
+- `session_id` (nullable, `ON DELETE SET NULL`): the session whose wrap-up created the card.
+  The summary page lists "the new vocab items" of a session, which the spec's fields can't
+  express: words the partner used have no `source_correction_id`.
+- `created_at`, for sorting the deck newest first.
+Also a unique index on `(learner_profile_id, lower(term))` as a safety net under the
+application-level deduplication (D34). **Please confirm or say if you'd prefer otherwise.**
+
+### D32. Wrap-up output and storage
+One call to the analysis model (`wrapup_v1`) returns a flat JSON object:
+`went_well`, `recurring_mistakes` (up to 3), `practice` (exactly 3), and `vocab` (up to 10
+items with `term`, `translation`, `example_sentence`, `source`). It's flat because the small
+model broke nested objects in testing; Groq's native JSON mode is now on for analysis
+(`LLM_ANALYSIS_JSON_MODE=true` in `.env`) for the same reason. Corrections are numbered C1,
+C2, ... in the prompt, and `source: "C2"` links a card to its correction; unknown ids are
+ignored. Validation rejects summaries that list bare ids ("C1, C2") instead of describing
+the mistake. `sessions.summary` stores the three summary parts as JSON text.
+
+### D33. Which words become cards
+- Every correction becomes a card. If the model leaves one out, a card is made from the
+  correction itself: the corrected text, with the explanation as the back of the card.
+- At most 3 other words (new words the partner used), and not words the learner typed
+  themselves. The small model padded the list with "por favor" and "sí" without this.
+- This replaces D27's plan to add vocab suggestions to the per-message analysis: the wrap-up
+  sees the whole session, and the analysis prompt stays small.
+
+### D34. Deduplication
+Terms are compared after lowercasing, collapsing spaces, trimming edge punctuation, and
+dropping one leading article for the target language (es, fr, it, pt, de, nl, sv, en), so
+"un café", "el café" and "café." are one card. Accents count: "papa" and "papá" differ.
+Deduplication is per learner profile, so the same word can be in the Spanish and French
+decks. The insert uses `ON CONFLICT DO NOTHING` on the unique index for races.
+
+### D35. Ending a session
+`POST /sessions/{id}/end` waits up to 20 seconds for corrections still in progress, so the
+last message's mistakes make it into the wrap-up. It locks the session row before saving,
+so two clicks can't save two wrap-ups, and ending again returns the saved result. If the
+LLM fails, nothing is saved and the session stays open (503). A session with no learner
+messages ends without an LLM call. `error_rate` is the share of learner messages with at
+least one correction, from 0 to 1.
+
+### D36. Endpoints added beyond the spec's table
+- `DELETE /vocab/{id}`: the summary page needs "an option to remove" each new card.
+- `GET /sessions/{id}/summary`: reload the summary page without ending again.
+`GET /vocab` filters: `all`, `due`, `new` (never reviewed), `learning`, `mistakes`, plus
+`q` (search term or translation, wildcards escaped) and `page`/`page_size`. Both
+`GET /vocab` and `GET /vocab/review` return `due_count` for the home page prompt.
+
+### D37. Review UI
+Space or Enter shows the answer; keys 0 to 5 rate it. Labels: Forgot, Wrong, Almost, Hard,
+Good, Easy. After each rating the page says when the card comes back. The review page
+reloads due cards each time it's shown (Next.js keeps hidden pages mounted). The
+"already in your deck" count is passed in the URL right after ending, since it isn't stored.

@@ -98,3 +98,46 @@ export interface ProfileUpdate {
   cefr_level: CefrLevel;
   goals: string | null;
 }
+
+export interface VocabItem {
+  id: number;
+  term: string;
+  translation: string;
+  example_sentence: string | null;
+  source_correction_id: number | null;
+  session_id: number | null;
+  ease: number;
+  interval_days: number;
+  repetitions: number;
+  due_at: string;
+  created_at: string;
+}
+
+export type VocabFilter = "all" | "due" | "new" | "learning" | "mistakes";
+
+export interface VocabPage {
+  items: VocabItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  due_count: number;
+}
+
+export interface ReviewQueue {
+  items: VocabItem[];
+  due_count: number;
+}
+
+export interface SessionSummary {
+  went_well: string;
+  recurring_mistakes: string[];
+  practice: string[];
+}
+
+export interface WrapUpResult {
+  session_id: number;
+  summary: SessionSummary | null;
+  error_rate: number | null;
+  new_vocab: VocabItem[];
+  skipped_duplicates: number;
+}

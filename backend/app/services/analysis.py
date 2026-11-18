@@ -16,8 +16,11 @@ from app.schemas.conversation import CorrectionOut
 
 logger = logging.getLogger(__name__)
 
+AnalysisTask = asyncio.Task[list[CorrectionOut] | None]
+
 # Strong references so running tasks aren't garbage collected mid-flight.
-_running: set[asyncio.Task[list[CorrectionOut] | None]] = set()
+_running: set[AnalysisTask] = set()
+_by_session: dict[int, set[AnalysisTask]] = {}
 
 
 async def analyse_turn(
@@ -58,9 +61,26 @@ async def analyse_turn(
 
 
 def start_analysis(
-    turn_id: int, item: AnalysisInput, llm: LLMClient, usage_tag: str
-) -> asyncio.Task[list[CorrectionOut] | None]:
+    session_id: int, turn_id: int, item: AnalysisInput, llm: LLMClient, usage_tag: str
+) -> AnalysisTask:
     task = asyncio.create_task(analyse_turn(turn_id, item, llm, usage_tag))
     _running.add(task)
-    task.add_done_callback(_running.discard)
+    _by_session.setdefault(session_id, set()).add(task)
+
+    def forget(done: AnalysisTask) -> None:
+        _running.discard(done)
+        tasks = _by_session.get(session_id)
+        if tasks is not None:
+            tasks.discard(done)
+            if not tasks:
+                _by_session.pop(session_id, None)
+
+    task.add_done_callback(forget)
     return task
+
+
+async def wait_for_session(session_id: int, grace_seconds: float) -> None:
+    """Wait (up to ``grace_seconds``) for this session's analyses still in progress."""
+    tasks = list(_by_session.get(session_id, ()))
+    if tasks:
+        await asyncio.wait(tasks, timeout=grace_seconds)

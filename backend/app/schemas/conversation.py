@@ -64,7 +64,6 @@ class SessionOut(BaseModel):
     cefr_level: CefrLevel
     started_at: datetime
     ended_at: datetime | None
-    summary: str | None
     turns: list[TurnOut]
 
 

@@ -5,9 +5,11 @@ from app.models.correction import Correction
 from app.models.learner_profile import LearnerProfile
 from app.models.llm_usage import LlmUsage
 from app.models.practice_session import PracticeSession
+from app.models.review import Review
 from app.models.scenario import Scenario
 from app.models.turn import Turn
 from app.models.user import User
+from app.models.vocab_item import VocabItem
 
 __all__ = [
     "Base",
@@ -15,7 +17,9 @@ __all__ = [
     "LearnerProfile",
     "LlmUsage",
     "PracticeSession",
+    "Review",
     "Scenario",
     "Turn",
     "User",
+    "VocabItem",
 ]

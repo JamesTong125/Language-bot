@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { CorrectionChips } from "@/components/conversation/CorrectionChips";
@@ -34,6 +35,8 @@ export function ConversationView({ sessionId }: { sessionId: number }) {
 }
 
 function Conversation({ initial }: { initial: PracticeSession }) {
+  const router = useRouter();
+  const [ending, setEnding] = useState(false);
   const [turns, setTurns] = useState<Turn[]>(initial.turns);
   const [draft, setDraft] = useState("");
   const [pendingText, setPendingText] = useState<string | null>(null);
@@ -51,6 +54,29 @@ function Conversation({ initial }: { initial: PracticeSession }) {
   const lastTurn = turns.at(-1);
   const awaitingReply = !sending && lastTurn?.role === "learner";
   const hintTurnId = !sending && lastTurn?.role === "partner" ? lastTurn.id : null;
+  const hasLearnerTurn = turns.some((t) => t.role === "learner");
+
+  async function endSession() {
+    if (
+      !hasLearnerTurn &&
+      !window.confirm("You haven't sent a message yet. End this session anyway?")
+    ) {
+      return;
+    }
+    setEnding(true);
+    setError(null);
+    try {
+      const result = await api.endSession(initial.id);
+      // Pages stay mounted after navigation, so reset before leaving.
+      setEnding(false);
+      // The skipped count is only known now, so pass it along in the URL.
+      const skipped = result.skipped_duplicates ? `?skipped=${result.skipped_duplicates}` : "";
+      router.push(`/sessions/${initial.id}/summary${skipped}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't end the session");
+      setEnding(false);
+    }
+  }
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -135,9 +161,23 @@ function Conversation({ initial }: { initial: PracticeSession }) {
   return (
     <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-4">
       <header>
-        <Link href="/home" className="text-sm font-medium text-teal-800 underline">
-          ← Scenarios
-        </Link>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link href="/home" className="text-sm font-medium text-teal-800 underline">
+            ← Scenarios
+          </Link>
+          {ended ? (
+            <Link
+              href={`/sessions/${initial.id}/summary`}
+              className="text-sm font-semibold text-teal-800 underline"
+            >
+              View summary
+            </Link>
+          ) : (
+            <Button variant="secondary" onClick={endSession} disabled={ending || sending}>
+              {ending ? "Writing your summary…" : "End session"}
+            </Button>
+          )}
+        </div>
         <h1 className="mt-2 text-2xl font-bold">{initial.scenario.title}</h1>
         <p className="text-sm text-stone-600">
           <span className="font-medium text-stone-800">Goal:</span> {initial.scenario.goal}
@@ -192,7 +232,12 @@ function Conversation({ initial }: { initial: PracticeSession }) {
       )}
 
       {ended ? (
-        <p className="rounded-xl bg-stone-100 p-4 text-center text-stone-700">This session has ended.</p>
+        <p className="rounded-xl bg-stone-100 p-4 text-center text-stone-700">
+          This session has ended.{" "}
+          <Link href={`/sessions/${initial.id}/summary`} className="font-semibold text-teal-800 underline">
+            View the summary
+          </Link>
+        </p>
       ) : (
         <div className="sticky bottom-0 space-y-3 bg-stone-50 pb-2">
           {showHints && (
@@ -222,7 +267,7 @@ function Conversation({ initial }: { initial: PracticeSession }) {
               placeholder="Type your reply… (Enter to send, Shift+Enter for a new line)"
               className="min-h-11 flex-1 resize-none rounded-xl border border-stone-300 bg-white px-3 py-2 text-base focus:border-teal-700 focus:outline-2 focus:outline-teal-700/30"
             />
-            <Button type="submit" disabled={sending || !draft.trim()}>
+            <Button type="submit" disabled={sending || ending || !draft.trim()}>
               {sending ? "Sending…" : "Send"}
             </Button>
           </form>

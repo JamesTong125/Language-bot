@@ -6,11 +6,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import LearnerProfile, PracticeSession, Scenario, Turn, User
-from app.schemas.account import AccountExport, ExportedSession, ExportedUser
+from app.models import LearnerProfile, PracticeSession, Review, Scenario, Turn, User, VocabItem
+from app.schemas.account import (
+    AccountExport,
+    ExportedReview,
+    ExportedSession,
+    ExportedUser,
+    ExportedVocab,
+)
 from app.schemas.conversation import ScenarioOut, TurnOut
 from app.schemas.profile import LearnerProfileOut
+from app.schemas.vocab import VocabOut
 from app.services.profiles import list_profiles
+from app.services.wrapup import parse_summary
 
 
 async def build_export(db: AsyncSession, user: User) -> AccountExport:
@@ -28,6 +36,25 @@ async def build_export(db: AsyncSession, user: User) -> AccountExport:
         )
         .order_by(PracticeSession.id)
     )
+    vocab = list(
+        (
+            await db.execute(
+                select(VocabItem)
+                .join(LearnerProfile, VocabItem.learner_profile_id == LearnerProfile.id)
+                .where(LearnerProfile.user_id == user.id)
+                .order_by(VocabItem.id)
+            )
+        ).scalars()
+    )
+    reviews_by_item: dict[int, list[Review]] = {}
+    if vocab:
+        reviews = await db.execute(
+            select(Review)
+            .where(Review.vocab_item_id.in_([v.id for v in vocab]))
+            .order_by(Review.reviewed_at, Review.id)
+        )
+        for r in reviews.scalars():
+            reviews_by_item.setdefault(r.vocab_item_id, []).append(r)
     return AccountExport(
         exported_at=datetime.now(UTC),
         user=ExportedUser(
@@ -46,10 +73,21 @@ async def build_export(db: AsyncSession, user: User) -> AccountExport:
                 scenario_title=s.scenario.title,
                 started_at=s.started_at,
                 ended_at=s.ended_at,
-                summary=s.summary,
+                summary=parse_summary(s.summary),
                 error_rate=float(s.error_rate) if s.error_rate is not None else None,
                 turns=[TurnOut.model_validate(t) for t in s.turns],
             )
             for s in sessions.scalars()
+        ],
+        vocab_items=[
+            ExportedVocab(
+                **VocabOut.model_validate(v).model_dump(),
+                learner_profile_id=v.learner_profile_id,
+                reviews=[
+                    ExportedReview(rating=r.rating, reviewed_at=r.reviewed_at)
+                    for r in reviews_by_item.get(v.id, [])
+                ],
+            )
+            for v in vocab
         ],
     )

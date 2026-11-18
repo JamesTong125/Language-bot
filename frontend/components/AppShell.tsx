@@ -23,6 +23,8 @@ interface Props {
 
 const navLinks = [
   { href: "/home", label: "Home" },
+  { href: "/review", label: "Review" },
+  { href: "/vocab", label: "Vocab" },
   { href: "/profile", label: "Profile" },
 ];
 

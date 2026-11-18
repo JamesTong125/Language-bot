@@ -17,6 +17,7 @@ from app.schemas.conversation import (
     TurnOut,
     TurnRequest,
 )
+from app.schemas.vocab import WrapUpResult
 from app.services.analysis import start_analysis
 from app.services.practice_sessions import (
     ReplyPlan,
@@ -29,6 +30,7 @@ from app.services.practice_sessions import (
     suggest_hint,
 )
 from app.services.scenarios import get_visible_scenario
+from app.services.wrapup import end_session, existing_result
 from app.sse import SSE_HEADERS, sse_event
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,6 @@ def session_out(session: PracticeSession, native_language: str) -> SessionOut:
         cefr_level=session.learner_profile.cefr_level,
         started_at=session.started_at,
         ended_at=session.ended_at,
-        summary=session.summary,
         turns=[TurnOut.model_validate(t) for t in session.turns],
     )
 
@@ -172,6 +173,7 @@ async def post_turn(
         session = await _load(db, session_id, user)
         # Start right away, so analysis runs alongside the partner reply.
         analysis = start_analysis(
+            session.id,
             turn.id,
             analysis_input(session, user.native_language),
             analysis_llm,
@@ -188,6 +190,40 @@ async def post_turn(
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
+
+
+@router.post("/{session_id}/end")
+async def post_end(
+    session_id: int,
+    user: CurrentUser,
+    db: DbSession,
+    llm: AnalysisLLM,
+) -> WrapUpResult:
+    """Run the wrap-up: summary, error rate, and new vocab cards (duplicates skipped).
+
+    Ending an ended session returns its saved result. If the LLM fails, the session stays
+    open and nothing is saved.
+    """
+    session = await _load(db, session_id, user)
+    assert user.native_language
+    try:
+        return await end_session(db, session, user.id, user.native_language, llm)
+    except LLMError as exc:
+        logger.warning("Wrap-up failed for session %d: %s", session_id, type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Couldn't write your session summary right now. Please try again.",
+        ) from exc
+
+
+@router.get("/{session_id}/summary")
+async def get_summary(session_id: int, user: CurrentUser, db: DbSession) -> WrapUpResult:
+    session = await _load(db, session_id, user)
+    if session.ended_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="This session is still open"
+        )
+    return await existing_result(db, session)
 
 
 @router.post("/{session_id}/hint")
