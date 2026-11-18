@@ -2,6 +2,10 @@
 
 from app.models.base import Base
 from app.models.learner_profile import LearnerProfile
+from app.models.llm_usage import LlmUsage
+from app.models.practice_session import PracticeSession
+from app.models.scenario import Scenario
+from app.models.turn import Turn
 from app.models.user import User
 
-__all__ = ["Base", "LearnerProfile", "User"]
+__all__ = ["Base", "LearnerProfile", "LlmUsage", "PracticeSession", "Scenario", "Turn", "User"]

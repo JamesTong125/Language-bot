@@ -20,7 +20,7 @@ async def test_export_contains_user_and_profiles_but_no_password(client: AsyncCl
     assert response.status_code == 200
     assert "attachment" in response.headers["content-disposition"]
     data = response.json()
-    assert data["format_version"] == 1
+    assert data["format_version"] == 2
     assert data["user"]["email"] == "ana@example.com"
     assert data["user"]["native_language"] == "en"
     assert [p["target_language"] for p in data["learner_profiles"]] == ["de"]

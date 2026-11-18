@@ -1,0 +1,204 @@
+"use client";
+
+import Link from "next/link";
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+
+import { HintPanel } from "@/components/conversation/HintPanel";
+import { MessageBubble, TypingIndicator } from "@/components/conversation/MessageBubble";
+import { Alert, Button, ErrorState, Spinner } from "@/components/ui";
+import { api, ApiError, streamTurn } from "@/lib/api";
+import type { PracticeSession, Turn } from "@/lib/types";
+import { useAsync } from "@/lib/useAsync";
+
+const MAX_CHARS = 1000;
+
+export function ConversationView({ sessionId }: { sessionId: number }) {
+  const [state, reload] = useAsync(() => api.getSession(sessionId));
+
+  if (state.status === "loading") return <Spinner label="Loading conversation" />;
+  if (state.status === "error") {
+    if (state.error instanceof ApiError && state.error.status === 404) {
+      return (
+        <div className="py-12 text-center">
+          <p className="text-stone-700">This conversation doesn&apos;t exist.</p>
+          <Link href="/home" className="mt-4 inline-block font-semibold text-teal-800 underline">
+            Back to scenarios
+          </Link>
+        </div>
+      );
+    }
+    return <ErrorState message={state.error.message} onRetry={reload} />;
+  }
+  return <Conversation key={state.data.id} initial={state.data} />;
+}
+
+function Conversation({ initial }: { initial: PracticeSession }) {
+  const [turns, setTurns] = useState<Turn[]>(initial.turns);
+  const [draft, setDraft] = useState("");
+  const [pendingText, setPendingText] = useState<string | null>(null);
+  const [streamText, setStreamText] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showHints, setShowHints] = useState(false);
+  const logEnd = useRef<HTMLLIElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const lang = initial.target_language;
+  const ended = initial.ended_at !== null;
+  const lastTurn = turns.at(-1);
+  const awaitingReply = !sending && lastTurn?.role === "learner";
+  const hintTurnId = !sending && lastTurn?.role === "partner" ? lastTurn.id : null;
+
+  useEffect(() => {
+    logEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [turns.length, streamText, pendingText, error]);
+
+  async function run(body: { text: string } | { retry: true }) {
+    setSending(true);
+    setError(null);
+    setStreamText(null);
+    let learnerSaved = "retry" in body;
+    try {
+      await streamTurn(initial.id, body, {
+        onLearnerTurn: (turn) => {
+          learnerSaved = true;
+          setPendingText(null);
+          setTurns((prev) => [...prev, turn]);
+        },
+        onToken: (text) => setStreamText((prev) => (prev ?? "") + text),
+        onDone: (turn) => {
+          setStreamText(null);
+          setTurns((prev) => [...prev, turn]);
+        },
+      });
+    } catch (err) {
+      setStreamText(null);
+      setPendingText(null);
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      // If the server never saved the message, give the text back so nothing is lost.
+      if (!learnerSaved && "text" in body) setDraft((current) => current || body.text);
+      // Re-sync with the server so the transcript shows exactly what was saved.
+      api.getSession(initial.id).then((fresh) => setTurns(fresh.turns), () => undefined);
+    } finally {
+      setSending(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  function submit(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const text = draft.trim();
+    if (!text || sending) return;
+    setDraft("");
+    setPendingText(text);
+    void run({ text });
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      submit();
+    }
+  }
+
+  return (
+    <div className="flex min-h-[calc(100dvh-10rem)] flex-col gap-4">
+      <header>
+        <Link href="/home" className="text-sm font-medium text-teal-800 underline">
+          ← Scenarios
+        </Link>
+        <h1 className="mt-2 text-2xl font-bold">{initial.scenario.title}</h1>
+        <p className="text-sm text-stone-600">
+          <span className="font-medium text-stone-800">Goal:</span> {initial.scenario.goal}
+        </p>
+      </header>
+
+      <ol
+        aria-label="Conversation"
+        aria-live="polite"
+        aria-busy={sending}
+        className="flex flex-1 flex-col gap-3 rounded-2xl bg-stone-100 p-3 sm:p-4"
+      >
+        {turns.map((turn) => (
+          <MessageBubble key={turn.id} role={turn.role} text={turn.text} lang={lang} />
+        ))}
+        {pendingText !== null && (
+          <MessageBubble role="learner" text={pendingText} lang={lang} pending />
+        )}
+        {sending && streamText === null && <TypingIndicator />}
+        {streamText !== null && (
+          <MessageBubble role="partner" text={streamText} lang={lang} streaming />
+        )}
+        <li ref={logEnd} aria-hidden className="h-0" />
+      </ol>
+
+      {error && (
+        <Alert>
+          <span>{error}</span>
+          {awaitingReply && (
+            <Button variant="secondary" className="ml-3 min-h-9 py-1" onClick={() => void run({ retry: true })}>
+              Retry
+            </Button>
+          )}
+        </Alert>
+      )}
+      {!error && awaitingReply && (
+        <Alert>
+          <span>Your partner hasn&apos;t replied to your last message.</span>
+          <Button variant="secondary" className="ml-3 min-h-9 py-1" onClick={() => void run({ retry: true })}>
+            Get reply
+          </Button>
+        </Alert>
+      )}
+
+      {ended ? (
+        <p className="rounded-xl bg-stone-100 p-4 text-center text-stone-700">This session has ended.</p>
+      ) : (
+        <div className="sticky bottom-0 space-y-3 bg-stone-50 pb-2">
+          {showHints && (
+            <HintPanel
+              sessionId={initial.id}
+              partnerTurnId={hintTurnId}
+              lang={lang}
+              onPick={(text) => {
+                setDraft(text);
+                inputRef.current?.focus();
+              }}
+            />
+          )}
+          <form onSubmit={submit} className="flex items-end gap-2">
+            <label htmlFor="message" className="sr-only">
+              Your message
+            </label>
+            <textarea
+              id="message"
+              ref={inputRef}
+              lang={lang}
+              rows={2}
+              maxLength={MAX_CHARS}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Type your reply… (Enter to send, Shift+Enter for a new line)"
+              className="min-h-11 flex-1 resize-none rounded-xl border border-stone-300 bg-white px-3 py-2 text-base focus:border-teal-700 focus:outline-2 focus:outline-teal-700/30"
+            />
+            <Button type="submit" disabled={sending || !draft.trim()}>
+              {sending ? "Sending…" : "Send"}
+            </Button>
+          </form>
+          <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-checked={showHints}
+              checked={showHints}
+              onChange={(e) => setShowHints(e.target.checked)}
+              className="size-4 accent-teal-700"
+            />
+            Show hints for what to say next
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}

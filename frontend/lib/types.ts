@@ -34,6 +34,39 @@ export interface ProfileResponse {
   profiles: LearnerProfile[];
 }
 
+export interface Scenario {
+  id: number;
+  title: string;
+  description: string;
+  partner_persona: string;
+  goal: string;
+  target_language: string | null;
+  cefr_level: CefrLevel;
+  is_custom: boolean;
+}
+
+export interface Turn {
+  id: number;
+  role: "learner" | "partner";
+  text: string;
+  created_at: string;
+}
+
+export interface PracticeSession {
+  id: number;
+  scenario: Scenario;
+  target_language: string;
+  cefr_level: CefrLevel;
+  started_at: string;
+  ended_at: string | null;
+  summary: string | null;
+  turns: Turn[];
+}
+
+export interface Hint {
+  suggestions: string[];
+}
+
 export interface ProfileUpdate {
   native_language: string;
   target_language: string;

@@ -1,0 +1,165 @@
+import logging
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
+
+from app.deps import AnalysisLLM, AppSettings, ChatLLM, CurrentProfile, CurrentUser, DbSession
+from app.llm.base import AllProvidersFailedError, LLMClient, LLMError, LLMNotConfiguredError
+from app.models import PracticeSession, User
+from app.schemas.conversation import (
+    HintOut,
+    ScenarioOut,
+    SessionOut,
+    StartSessionRequest,
+    TurnOut,
+    TurnRequest,
+)
+from app.services.practice_sessions import (
+    ReplyPlan,
+    add_learner_turn,
+    get_owned_session,
+    plan_reply,
+    save_partner_turn,
+    start_session,
+    suggest_hint,
+)
+from app.services.scenarios import get_visible_scenario
+from app.sse import SSE_HEADERS, sse_event
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+def session_out(session: PracticeSession) -> SessionOut:
+    return SessionOut(
+        id=session.id,
+        scenario=ScenarioOut.model_validate(session.scenario),
+        target_language=session.learner_profile.target_language,
+        cefr_level=session.learner_profile.cefr_level,
+        started_at=session.started_at,
+        ended_at=session.ended_at,
+        summary=session.summary,
+        turns=[TurnOut.model_validate(t) for t in session.turns],
+    )
+
+
+def llm_error_message(exc: LLMError) -> str:
+    if isinstance(exc, LLMNotConfiguredError):
+        return "The AI partner isn't configured on the server yet."
+    if isinstance(exc, AllProvidersFailedError):
+        return exc.user_message
+    return "The AI partner couldn't reply. Please try again."
+
+
+async def _load(db: DbSession, session_id: int, user: User) -> PracticeSession:
+    session = await get_owned_session(db, session_id, user.id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return session
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_session(
+    body: StartSessionRequest,
+    user: CurrentUser,
+    profile: CurrentProfile,
+    db: DbSession,
+    llm: ChatLLM,
+    settings: AppSettings,
+) -> SessionOut:
+    scenario = await get_visible_scenario(db, body.scenario_id, user.id, profile.target_language)
+    if scenario is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scenario not found")
+    try:
+        session = await start_session(db, user, profile, scenario, llm, settings.llm_history_turns)
+    except LLMError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=llm_error_message(exc)
+        ) from exc
+    return session_out(session)
+
+
+@router.get("/{session_id}")
+async def get_session(session_id: int, user: CurrentUser, db: DbSession) -> SessionOut:
+    return session_out(await _load(db, session_id, user))
+
+
+async def _reply_events(
+    plan: ReplyPlan, llm: LLMClient, learner_turn: TurnOut | None
+) -> AsyncIterator[str]:
+    if learner_turn is not None:
+        yield sse_event("learner_turn", learner_turn.model_dump(mode="json"))
+    parts: list[str] = []
+    try:
+        async for chunk in llm.stream_chat(plan.messages, usage_tag=plan.usage_tag):
+            parts.append(chunk)
+            yield sse_event("token", {"text": chunk})
+        text = "".join(parts).strip()
+        if not text:
+            raise LLMError("Empty reply")
+        turn = await save_partner_turn(plan.session_id, text)
+        yield sse_event("done", TurnOut.model_validate(turn).model_dump(mode="json"))
+    except LLMError as exc:
+        logger.warning(
+            "Partner reply failed for session %d: %s", plan.session_id, type(exc).__name__
+        )
+        yield sse_event("error", {"message": llm_error_message(exc), "retryable": True})
+
+
+@router.post("/{session_id}/turns")
+async def post_turn(
+    session_id: int,
+    body: TurnRequest,
+    user: CurrentUser,
+    db: DbSession,
+    llm: ChatLLM,
+    settings: AppSettings,
+) -> StreamingResponse:
+    """Save the learner message, then stream the partner reply as SSE.
+
+    Events: ``learner_turn`` (the saved message), ``token`` (reply text chunks),
+    then ``done`` (the saved partner turn) or ``error`` (nothing saved; send
+    ``{"retry": true}`` to try again). The learner message is kept either way.
+    """
+    session = await _load(db, session_id, user)
+    if session.ended_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This session has ended")
+    assert user.native_language  # Sessions only exist for onboarded users.
+
+    learner_turn: TurnOut | None = None
+    if body.text is not None:
+        turn = await add_learner_turn(db, session, body.text)
+        learner_turn = TurnOut.model_validate(turn)
+        session = await _load(db, session_id, user)
+    elif not session.turns or session.turns[-1].role != "learner":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="There is no message waiting for a reply"
+        )
+
+    plan = plan_reply(session, user.native_language, settings.llm_history_turns)
+    return StreamingResponse(
+        _reply_events(plan, llm, learner_turn),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
+
+
+@router.post("/{session_id}/hint")
+async def post_hint(
+    session_id: int,
+    user: CurrentUser,
+    db: DbSession,
+    llm: AnalysisLLM,
+    settings: AppSettings,
+) -> HintOut:
+    session = await _load(db, session_id, user)
+    assert user.native_language
+    try:
+        return await suggest_hint(session, user.native_language, llm, settings.llm_history_turns)
+    except LLMError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Couldn't get a hint right now. Please try again.",
+        ) from exc

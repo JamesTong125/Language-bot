@@ -7,9 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import User
+from app.llm.base import LLMClient
+from app.llm.factory import get_analysis_llm, get_chat_llm
+from app.models import LearnerProfile, User
 from app.security.cookies import COOKIE_NAME
 from app.security.tokens import decode_user_id
+from app.services.profiles import get_current_profile as get_current_profile_for
 from app.services.users import get_user
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -34,3 +37,18 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_current_profile(user: CurrentUser, db: DbSession) -> LearnerProfile:
+    """The learner's current profile. 409 if they haven't finished onboarding."""
+    profile = await get_current_profile_for(db, user.id)
+    if profile is None or not user.native_language:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Finish setting up your profile first"
+        )
+    return profile
+
+
+CurrentProfile = Annotated[LearnerProfile, Depends(get_current_profile)]
+ChatLLM = Annotated[LLMClient, Depends(get_chat_llm)]
+AnalysisLLM = Annotated[LLMClient, Depends(get_analysis_llm)]
