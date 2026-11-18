@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useLayoutEffect, useState } from "react";
 
 import { Alert, Button, Card, inputClass } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -33,6 +33,16 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const text = copy[mode];
+
+  // Next.js keeps this page mounted but hidden after navigating away. Reset when hidden,
+  // so returning after logout shows a usable form without the old password.
+  useLayoutEffect(() => {
+    return () => {
+      setSubmitting(false);
+      setPassword("");
+      setError(null);
+    };
+  }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -40,6 +40,10 @@ export function AccountDataCard() {
     setDeleteError(null);
     try {
       await api.deleteAccount(password);
+      // Pages stay mounted after navigation; clear the form so it isn't stuck on return.
+      setDeleting(false);
+      setConfirmingDelete(false);
+      setPassword("");
       router.replace("/");
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Could not delete your account");

@@ -51,6 +51,8 @@ export function AppShell({ requireProfile = true, children }: Props) {
     try {
       await api.logout();
     } finally {
+      // Pages stay mounted after navigation, so reset or the button stays disabled.
+      setLoggingOut(false);
       router.replace("/login");
     }
   }

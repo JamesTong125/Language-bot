@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 import { Alert, Button, ErrorState, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -23,6 +23,15 @@ export function ScenarioPicker({ learnerLevel }: { learnerLevel: CefrLevel }) {
   const [state, reload] = useAsync(() => api.scenarios().then((r) => r.scenarios));
   const [startingId, setStartingId] = useState<number | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+
+  // Next.js keeps this page mounted but hidden after navigating away (React Activity).
+  // Clear the "starting" state when it's hidden, so the buttons work again on return.
+  useLayoutEffect(() => {
+    return () => {
+      setStartingId(null);
+      setStartError(null);
+    };
+  }, []);
 
   async function start(scenario: Scenario) {
     setStartingId(scenario.id);
