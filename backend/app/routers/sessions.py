@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 
@@ -8,6 +9,7 @@ from app.deps import AnalysisLLM, AppSettings, ChatLLM, CurrentProfile, CurrentU
 from app.llm.base import AllProvidersFailedError, LLMClient, LLMError, LLMNotConfiguredError
 from app.models import PracticeSession, User
 from app.schemas.conversation import (
+    CorrectionOut,
     HintOut,
     ScenarioOut,
     SessionOut,
@@ -15,9 +17,11 @@ from app.schemas.conversation import (
     TurnOut,
     TurnRequest,
 )
+from app.services.analysis import start_analysis
 from app.services.practice_sessions import (
     ReplyPlan,
     add_learner_turn,
+    analysis_input,
     get_owned_session,
     plan_reply,
     save_partner_turn,
@@ -32,11 +36,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-def session_out(session: PracticeSession) -> SessionOut:
+def session_out(session: PracticeSession, native_language: str) -> SessionOut:
     return SessionOut(
         id=session.id,
         scenario=ScenarioOut.model_validate(session.scenario),
         target_language=session.learner_profile.target_language,
+        native_language=native_language,
         cefr_level=session.learner_profile.cefr_level,
         started_at=session.started_at,
         ended_at=session.ended_at,
@@ -78,16 +83,28 @@ async def create_session(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=llm_error_message(exc)
         ) from exc
-    return session_out(session)
+    assert user.native_language
+    return session_out(session, user.native_language)
 
 
 @router.get("/{session_id}")
 async def get_session(session_id: int, user: CurrentUser, db: DbSession) -> SessionOut:
-    return session_out(await _load(db, session_id, user))
+    assert user.native_language
+    return session_out(await _load(db, session_id, user), user.native_language)
+
+
+# How long the stream stays open after the reply, waiting for corrections. If analysis takes
+# longer, corrections are still saved and show up the next time the transcript is loaded.
+ANALYSIS_WAIT_SECONDS = 45.0
+
+AnalysisTask = asyncio.Task[list[CorrectionOut] | None]
 
 
 async def _reply_events(
-    plan: ReplyPlan, llm: LLMClient, learner_turn: TurnOut | None
+    plan: ReplyPlan,
+    llm: LLMClient,
+    learner_turn: TurnOut | None,
+    analysis: AnalysisTask | None,
 ) -> AsyncIterator[str]:
     if learner_turn is not None:
         yield sse_event("learner_turn", learner_turn.model_dump(mode="json"))
@@ -99,13 +116,30 @@ async def _reply_events(
         text = "".join(parts).strip()
         if not text:
             raise LLMError("Empty reply")
-        turn = await save_partner_turn(plan.session_id, text)
-        yield sse_event("done", TurnOut.model_validate(turn).model_dump(mode="json"))
+        partner_turn = await save_partner_turn(plan.session_id, text)
+        yield sse_event("done", partner_turn.model_dump(mode="json"))
     except LLMError as exc:
         logger.warning(
             "Partner reply failed for session %d: %s", plan.session_id, type(exc).__name__
         )
         yield sse_event("error", {"message": llm_error_message(exc), "retryable": True})
+
+    if analysis is None or learner_turn is None:
+        return
+    try:
+        # shield: if the wait times out or the client leaves, the analysis keeps running.
+        corrections = await asyncio.wait_for(asyncio.shield(analysis), ANALYSIS_WAIT_SECONDS)
+    except TimeoutError:
+        logger.info("Analysis for turn %d still running; closing stream", learner_turn.id)
+        return
+    yield sse_event(
+        "corrections",
+        {
+            "turn_id": learner_turn.id,
+            "status": "failed" if corrections is None else "ok",
+            "corrections": [c.model_dump(mode="json") for c in corrections or []],
+        },
+    )
 
 
 @router.post("/{session_id}/turns")
@@ -115,13 +149,15 @@ async def post_turn(
     user: CurrentUser,
     db: DbSession,
     llm: ChatLLM,
+    analysis_llm: AnalysisLLM,
     settings: AppSettings,
 ) -> StreamingResponse:
     """Save the learner message, then stream the partner reply as SSE.
 
-    Events: ``learner_turn`` (the saved message), ``token`` (reply text chunks),
-    then ``done`` (the saved partner turn) or ``error`` (nothing saved; send
-    ``{"retry": true}`` to try again). The learner message is kept either way.
+    Events: ``learner_turn`` (the saved message), ``token`` (reply text chunks), then
+    ``done`` (the saved partner turn) or ``error`` (nothing saved; send ``{"retry": true}``
+    to try again). For a new message, ``corrections`` follows once the background error
+    analysis finishes. The learner message is kept either way.
     """
     session = await _load(db, session_id, user)
     if session.ended_at is not None:
@@ -129,10 +165,18 @@ async def post_turn(
     assert user.native_language  # Sessions only exist for onboarded users.
 
     learner_turn: TurnOut | None = None
+    analysis: AnalysisTask | None = None
     if body.text is not None:
         turn = await add_learner_turn(db, session, body.text)
-        learner_turn = TurnOut.model_validate(turn)
+        learner_turn = TurnOut.new(turn)
         session = await _load(db, session_id, user)
+        # Start right away, so analysis runs alongside the partner reply.
+        analysis = start_analysis(
+            turn.id,
+            analysis_input(session, user.native_language),
+            analysis_llm,
+            usage_tag=f"session:{session.id}:analysis",
+        )
     elif not session.turns or session.turns[-1].role != "learner":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="There is no message waiting for a reply"
@@ -140,7 +184,7 @@ async def post_turn(
 
     plan = plan_reply(session, user.native_language, settings.llm_history_turns)
     return StreamingResponse(
-        _reply_events(plan, llm, learner_turn),
+        _reply_events(plan, llm, learner_turn, analysis),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )

@@ -146,3 +146,57 @@ tokens count against it), `LLM_<ROLE>_JSON_MODE` (native JSON mode flag),
 transcript goes in a separate user message so its lines can't be read as instructions. The UI
 fetches a hint once per partner message while the toggle is on, and clicking a suggestion
 copies it into the message box.
+
+## Phase 3: Corrections
+
+### D22. Analysis runs as an asyncio task, not FastAPI BackgroundTasks
+The spec suggests BackgroundTasks, but with a streaming response those only start after the
+stream closes, which would delay corrections until after the reply. `services/analysis.py`
+starts an `asyncio` task as soon as the learner turn is saved, so the analysis call and the
+partner reply run in parallel. The task saves corrections with its own DB session and never
+raises. A module-level set keeps references so tasks aren't garbage collected.
+
+### D23. Corrections arrive on the same SSE stream
+After `done` (or `error`), the stream waits up to 45 seconds for the analysis and sends
+`corrections` with `{"turn_id", "status": "ok" | "failed", "corrections": [...]}`, then
+closes. The wait is shielded: if it times out or the client leaves, the analysis still
+finishes and saves, and the corrections show on the next transcript load. A retry
+(`{"retry": true}`) doesn't re-run analysis; the message was analysed when it was sent.
+
+### D24. No "analysed" flag on turns
+A learner turn with no corrections looks the same whether it was correct or the analysis
+failed. The spec says to store nothing on failure, so this needs no schema change. The live
+UI shows "Checking your message…" until the `corrections` event or the end of the stream.
+
+### D25. Two layers of output checks
+`AnalysisOut` (Pydantic) checks shape: error type from the fixed set (spellings like
+"Word order" are normalised to `word_order`), severity 1 to 3, non-empty spans, at most 8
+items. A shape failure triggers the single retry. Then `usable_corrections` drops items that
+are well formed but unusable: a span that isn't in the learner's message (ignoring case,
+spacing, and curly apostrophes), a "fix" that only changes case, and duplicates. Dropping
+single items avoids a retry that would cost quota for one bad item.
+
+### D26. What the analysis model sees
+Rules first in a static system prompt (target, native language, level), one short example,
+and the learner's message in a separate user message with the previous partner line and
+the scene (title and persona) for context. The scene lets the model judge register: slang
+is flagged in a job interview but fine at a café. The prompt also tells the model not to
+assume the learner's gender, after it "corrected" a correct `organisé` to `organisée`.
+
+### D27. Suggested vocab items wait for Phase 4
+The spec lets analysis return optional vocab suggestions. Nothing could store them before
+the `vocab_items` table exists, so Phase 4 adds them to the analysis schema as
+`analysis_v2`, keeping this prompt small for the small model.
+
+### D28. Seeded correction cases
+`backend/tests/data/correction_cases.json` holds learner messages with known mistakes
+(Spanish, French, and German with Spanish explanations) and correct messages that must get
+no corrections. The test suite checks the pipeline with a fake model.
+`python -m scripts.eval_corrections --runs N` runs them against the real analysis model.
+A case passes when every expected mistake is found; extra valid fixes are allowed.
+Result on `openai/gpt-oss-20b`, reasoning effort low: 20/20 (10 cases, 2 runs each).
+
+### D29. Chip display
+"register" shows as "Tone" to learners. Chip colour follows severity (blue, amber, rose)
+and the severity is also given in text for screen readers. Chips are buttons with
+`aria-expanded`, so they work with the keyboard.

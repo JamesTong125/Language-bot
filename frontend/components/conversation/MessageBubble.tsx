@@ -1,15 +1,26 @@
+import type { ReactNode } from "react";
+
 interface Props {
   role: "learner" | "partner";
   text: string;
   lang: string;
   streaming?: boolean;
   pending?: boolean;
+  /** Shown under the bubble, e.g. correction chips. */
+  children?: ReactNode;
 }
 
-export function MessageBubble({ role, text, lang, streaming = false, pending = false }: Props) {
+export function MessageBubble({
+  role,
+  text,
+  lang,
+  streaming = false,
+  pending = false,
+  children,
+}: Props) {
   const isLearner = role === "learner";
   return (
-    <li className={`flex ${isLearner ? "justify-end" : "justify-start"}`}>
+    <li className={`flex flex-col ${isLearner ? "items-end" : "items-start"}`}>
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-2.5 sm:max-w-[75%] ${
           isLearner
@@ -27,6 +38,7 @@ export function MessageBubble({ role, text, lang, streaming = false, pending = f
           )}
         </p>
       </div>
+      {children}
     </li>
   );
 }

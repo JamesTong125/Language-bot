@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, created_at_column
 
 if TYPE_CHECKING:
+    from app.models.correction import Correction
     from app.models.practice_session import PracticeSession
 
 TurnRole = Literal["learner", "partner"]
@@ -30,3 +31,9 @@ class Turn(Base):
     created_at: Mapped[datetime] = created_at_column()
 
     session: Mapped[PracticeSession] = relationship(back_populates="turns")
+    corrections: Mapped[list[Correction]] = relationship(
+        back_populates="turn",
+        order_by="Correction.id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

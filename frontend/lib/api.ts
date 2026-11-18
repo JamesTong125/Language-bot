@@ -1,5 +1,6 @@
 import { readSse } from "@/lib/sse";
 import type {
+  CorrectionsEvent,
   Hint,
   LanguagesResponse,
   PracticeSession,
@@ -98,15 +99,20 @@ export const api = {
 export interface TurnHandlers {
   onLearnerTurn: (turn: Turn) => void;
   onToken: (text: string) => void;
+  /** The partner reply was saved. The stream may stay open for corrections. */
   onDone: (turn: Turn) => void;
+  /** The partner reply failed. The learner message (if new) is still saved. */
+  onReplyError: (message: string) => void;
+  onCorrections: (event: CorrectionsEvent) => void;
 }
 
-/** Longest a whole reply may take, including server-side retries and fallback. */
-const STREAM_TIMEOUT_MS = 120_000;
+/** Longest a whole stream may take: reply (with retries and fallback) plus corrections. */
+const STREAM_TIMEOUT_MS = 150_000;
 
 /**
- * Send a learner message (or retry the last reply) and stream the partner reply.
- * Resolves when the reply is saved. Rejects with ApiError if anything fails.
+ * Send a learner message (or retry the last reply), stream the partner reply, then wait
+ * for corrections. Resolves when the stream ends. Rejects with ApiError only when the
+ * request fails before the reply finished (network, HTTP error, or a cut-off stream).
  */
 export async function streamTurn(
   sessionId: number,
@@ -115,6 +121,7 @@ export async function streamTurn(
 ): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STREAM_TIMEOUT_MS);
+  let replyFinished = false;
   try {
     let response: Response;
     try {
@@ -137,14 +144,19 @@ export async function streamTurn(
       if (event === "learner_turn") handlers.onLearnerTurn(data as Turn);
       else if (event === "token") handlers.onToken((data as { text: string }).text);
       else if (event === "done") {
+        replyFinished = true;
         handlers.onDone(data as Turn);
-        return;
       } else if (event === "error") {
-        throw new ApiError(503, (data as { message: string }).message);
+        replyFinished = true;
+        handlers.onReplyError((data as { message: string }).message);
+      } else if (event === "corrections") {
+        handlers.onCorrections(data as CorrectionsEvent);
       }
     }
-    throw new ApiError(0, "The reply was cut off. Please try again.");
+    if (!replyFinished) throw new ApiError(0, "The reply was cut off. Please try again.");
   } catch (err) {
+    // After the reply, a dropped stream only means corrections didn't arrive live.
+    if (replyFinished) return;
     if (err instanceof ApiError) throw err;
     if (controller.signal.aborted) throw new ApiError(0, "The reply took too long. Please try again.");
     throw new ApiError(0, "The reply was cut off. Please try again.");

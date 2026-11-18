@@ -10,6 +10,7 @@ from app.prompts import render_prompt
 PARTNER_PROMPT = "partner_reply_v1"
 OPENING_PROMPT = "partner_opening_v1"
 HINT_PROMPT = "hint_v1"
+ANALYSIS_PROMPT = "analysis_v1"
 
 _LANGUAGE_NAMES = {lang.code: lang.name for lang in LANGUAGES}
 
@@ -90,6 +91,33 @@ def build_partner_messages(
         messages.append({"role": "user", "content": render_prompt(OPENING_PROMPT)})
     messages.extend(history)
     return messages
+
+
+@dataclass(frozen=True)
+class AnalysisInput:
+    target_language: str  # ISO code
+    native_language: str  # ISO code
+    level: str  # CEFR
+    learner_text: str
+    previous_partner_text: str | None
+    scene: str = ""  # e.g. "Job interview, talking to a hiring manager." Sets the register.
+
+
+def build_analysis_messages(item: AnalysisInput) -> list[Message]:
+    """Static rules in the system prompt; the message to check in a separate user message."""
+    system = render_prompt(
+        ANALYSIS_PROMPT,
+        target_language=language_name(item.target_language),
+        native_language=language_name(item.native_language),
+        level=item.level,
+    )
+    context = f"SCENE: {item.scene}\n" if item.scene else ""
+    if item.previous_partner_text:
+        context += f"PARTNER SAID (context only, don't check): {item.previous_partner_text}\n"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"{context}LEARNER MESSAGE: {item.learner_text}"},
+    ]
 
 
 def build_hint_messages(

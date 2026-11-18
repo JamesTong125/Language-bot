@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.conversation.prompt_builder import (
+    AnalysisInput,
     SceneContext,
     TurnText,
     build_hint_messages,
@@ -17,7 +18,7 @@ from app.conversation.prompt_builder import (
 from app.db import get_session_factory
 from app.llm.base import LLMClient, Message
 from app.models import LearnerProfile, PracticeSession, Scenario, Turn, User
-from app.schemas.conversation import HintOut
+from app.schemas.conversation import HintOut, TurnOut
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ async def get_owned_session(
         .options(
             selectinload(PracticeSession.scenario),
             selectinload(PracticeSession.learner_profile),
-            selectinload(PracticeSession.turns),
+            selectinload(PracticeSession.turns).selectinload(Turn.corrections),
         )
         .execution_options(populate_existing=True)
     )
@@ -109,6 +110,21 @@ class ReplyPlan:
     usage_tag: str
 
 
+def analysis_input(session: PracticeSession, native_language: str) -> AnalysisInput:
+    """What the analysis of the newest learner turn needs: its text and the line before it."""
+    learner, previous = session.turns[-1], session.turns[-2] if len(session.turns) > 1 else None
+    assert learner.role == "learner"
+    return AnalysisInput(
+        target_language=session.learner_profile.target_language,
+        native_language=native_language,
+        level=session.learner_profile.cefr_level,
+        learner_text=learner.text,
+        previous_partner_text=previous.text if previous and previous.role == "partner" else None,
+        scene=f"{session.scenario.title}. The learner is talking to: "
+        f"{session.scenario.partner_persona}",
+    )
+
+
 def plan_reply(session: PracticeSession, native_language: str, history_limit: int) -> ReplyPlan:
     scene = scene_for(session.scenario, session.learner_profile, native_language)
     return ReplyPlan(
@@ -118,14 +134,14 @@ def plan_reply(session: PracticeSession, native_language: str, history_limit: in
     )
 
 
-async def save_partner_turn(session_id: int, text: str) -> Turn:
+async def save_partner_turn(session_id: int, text: str) -> TurnOut:
     """Uses its own DB session: it runs inside a streaming response."""
     async with get_session_factory()() as db:
         turn = Turn(session_id=session_id, role="partner", text=text)
         db.add(turn)
         await db.commit()
         await db.refresh(turn)
-        return turn
+        return TurnOut.new(turn)
 
 
 async def suggest_hint(

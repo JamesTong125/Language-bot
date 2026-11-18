@@ -1,0 +1,96 @@
+[
+  {
+    "id": "es-ser-age",
+    "target_language": "es",
+    "native_language": "en",
+    "level": "A1",
+    "previous_partner_text": "¡Hola! ¿Cuántos años tienes?",
+    "learner_text": "Yo soy 25 años.",
+    "expected": [{"original_contains": "soy", "corrected_contains": "tengo"}]
+  },
+  {
+    "id": "es-gender-agreement",
+    "target_language": "es",
+    "native_language": "en",
+    "level": "A1",
+    "previous_partner_text": "¿Qué quieres tomar?",
+    "learner_text": "Quiero un café y una croissant, por favor.",
+    "expected": [{"original_contains": "una croissant", "corrected_contains": "un"}]
+  },
+  {
+    "id": "es-conjugation",
+    "target_language": "es",
+    "native_language": "en",
+    "level": "A2",
+    "previous_partner_text": "¿Qué hiciste ayer?",
+    "learner_text": "Ayer yo comí en un restaurante y después yo ir al cine.",
+    "expected": [{"original_contains": "ir", "corrected_contains": "fui"}]
+  },
+  {
+    "id": "es-correct",
+    "scene": "Ordering at a café. The learner is talking to: A friendly, chatty barista.",
+    "target_language": "es",
+    "native_language": "en",
+    "level": "A1",
+    "previous_partner_text": "¿Qué deseas?",
+    "learner_text": "Un café con leche, por favor.",
+    "expected": []
+  },
+  {
+    "id": "fr-auxiliary",
+    "target_language": "fr",
+    "native_language": "en",
+    "level": "B1",
+    "previous_partner_text": "Qu'avez-vous fait le week-end dernier ?",
+    "learner_text": "Le week-end dernier, j'ai allé à la plage avec mes amis.",
+    "expected": [{"original_contains": "ai allé", "corrected_contains": "suis allé"}]
+  },
+  {
+    "id": "fr-gender",
+    "target_language": "fr",
+    "native_language": "en",
+    "level": "A2",
+    "previous_partner_text": "Vous cherchez quelque chose ?",
+    "learner_text": "Je cherche un veste pour mon voyage.",
+    "expected": [{"original_contains": "un veste", "corrected_contains": "une veste"}]
+  },
+  {
+    "id": "fr-register",
+    "scene": "Job interview. The learner is talking to: A professional but friendly hiring manager.",
+    "target_language": "fr",
+    "native_language": "en",
+    "level": "B2",
+    "previous_partner_text": "Bonjour, asseyez-vous. Parlez-moi de votre parcours.",
+    "learner_text": "Salut mec, ouais j'ai bossé cinq ans comme développeur.",
+    "expected": [{"original_contains": "salut mec", "error_type": "register"}]
+  },
+  {
+    "id": "fr-correct",
+    "scene": "Job interview. The learner is talking to: A professional but friendly hiring manager.",
+    "target_language": "fr",
+    "native_language": "en",
+    "level": "B2",
+    "previous_partner_text": "Quelles sont vos forces ?",
+    "learner_text": "Je suis très organisé et j'aime travailler en équipe.",
+    "expected": []
+  },
+  {
+    "id": "de-explanation-in-native",
+    "target_language": "de",
+    "native_language": "es",
+    "level": "A2",
+    "previous_partner_text": "Wie komme ich zum Bahnhof?",
+    "learner_text": "Sie gehen geradeaus und dann Sie gehen links.",
+    "expected": [{"original_contains": "sie gehen", "corrected_contains": "gehen sie", "error_type": "word_order"}]
+  },
+  {
+    "id": "es-casual-ok",
+    "scene": "Ordering at a café. The learner is talking to: A friendly, chatty barista.",
+    "target_language": "es",
+    "native_language": "en",
+    "level": "A2",
+    "previous_partner_text": "¡Hola! ¿Qué te pongo?",
+    "learner_text": "Hola, ponme un café, porfa.",
+    "expected": []
+  }
+]

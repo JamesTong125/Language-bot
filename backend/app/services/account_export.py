@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import LearnerProfile, PracticeSession, Scenario, User
+from app.models import LearnerProfile, PracticeSession, Scenario, Turn, User
 from app.schemas.account import AccountExport, ExportedSession, ExportedUser
 from app.schemas.conversation import ScenarioOut, TurnOut
 from app.schemas.profile import LearnerProfileOut
@@ -22,7 +22,10 @@ async def build_export(db: AsyncSession, user: User) -> AccountExport:
         select(PracticeSession)
         .join(LearnerProfile, PracticeSession.learner_profile_id == LearnerProfile.id)
         .where(LearnerProfile.user_id == user.id)
-        .options(selectinload(PracticeSession.scenario), selectinload(PracticeSession.turns))
+        .options(
+            selectinload(PracticeSession.scenario),
+            selectinload(PracticeSession.turns).selectinload(Turn.corrections),
+        )
         .order_by(PracticeSession.id)
     )
     return AccountExport(

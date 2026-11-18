@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.languages import CefrLevel
+from app.schemas.analysis import ErrorType
 
 
 class ScenarioOut(BaseModel):
@@ -27,19 +28,39 @@ class StartSessionRequest(BaseModel):
     scenario_id: int
 
 
+class CorrectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original: str
+    corrected: str
+    error_type: ErrorType
+    explanation: str
+    severity: int
+
+
 class TurnOut(BaseModel):
+    """Build from a Turn loaded with its corrections (selectinload). For a turn created in
+    this request, use ``TurnOut.new``: lazy-loading corrections isn't possible in async."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     role: Literal["learner", "partner"]
     text: str
     created_at: datetime
+    corrections: list[CorrectionOut] = []
+
+    @classmethod
+    def new(cls, turn: Any) -> "TurnOut":
+        return cls(id=turn.id, role=turn.role, text=turn.text, created_at=turn.created_at)
 
 
 class SessionOut(BaseModel):
     id: int
     scenario: ScenarioOut
     target_language: str
+    native_language: str
     cefr_level: CefrLevel
     started_at: datetime
     ended_at: datetime | None

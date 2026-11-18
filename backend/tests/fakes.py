@@ -56,6 +56,8 @@ class FakeLLMClient:
         self, messages: list[Message], schema: type[SchemaT], **opts: Any
     ) -> SchemaT:
         async def complete(msgs: list[Message]) -> str:
+            if self._delay:
+                await asyncio.sleep(self._delay)
             return self._next(msgs, opts)
 
         return await complete_json_with_retry(complete, messages, schema)

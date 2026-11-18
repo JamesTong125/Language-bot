@@ -90,11 +90,12 @@ async def test_multi_turn_conversation_streams_and_saves(client: AsyncClient) ->
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
         events = parse_sse(response.text)
+        names = [e for e, _ in events]
         assert events[0][0] == "learner_turn" and events[0][1]["text"] == text
-        assert {e for e, _ in events[1:-1]} == {"token"}
-        assert events[-1][0] == "done"
+        assert names[-2:] == ["done", "corrections"]
+        assert set(names[1:-2]) == {"token"}
         streamed = "".join(d["text"] for e, d in events if e == "token")
-        assert streamed == events[-1][1]["text"]
+        assert streamed == events[-2][1]["text"]
 
     transcript = (await client.get(f"/sessions/{session['id']}")).json()["turns"]
     assert [t["role"] for t in transcript] == [
@@ -119,12 +120,13 @@ async def test_failed_reply_keeps_transcript_and_can_be_retried(client: AsyncCli
     url = f"/sessions/{session['id']}/turns"
 
     events = parse_sse((await client.post(url, json={"text": "Un té, por favor."})).text)
-    assert [e for e, _ in events] == ["learner_turn", "error"]
-    assert events[-1][1]["retryable"] is True
+    assert [e for e, _ in events] == ["learner_turn", "error", "corrections"]
+    assert events[1][1]["retryable"] is True
     transcript = (await client.get(f"/sessions/{session['id']}")).json()["turns"]
     assert [t["role"] for t in transcript] == ["partner", "learner"]
 
     events = parse_sse((await client.post(url, json={"retry": True})).text)
+    # A retry re-requests only the reply; the message was analysed the first time.
     assert events[0][0] == "token" and events[-1][0] == "done"
     transcript = (await client.get(f"/sessions/{session['id']}")).json()["turns"]
     assert [t["text"] for t in transcript] == ["¡Hola!", "Un té, por favor.", "Perfecto."]
@@ -184,7 +186,7 @@ async def test_malformed_hint_output_never_breaks_the_chat(client: AsyncClient) 
     events = parse_sse(
         (await client.post(f"/sessions/{session['id']}/turns", json={"text": "Hola"})).text
     )
-    assert events[-1][0] == "done"
+    assert "done" in [e for e, _ in events]
 
 
 async def test_export_and_delete_cover_sessions(client: AsyncClient) -> None:

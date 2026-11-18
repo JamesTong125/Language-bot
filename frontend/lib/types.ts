@@ -45,17 +45,42 @@ export interface Scenario {
   is_custom: boolean;
 }
 
+export type ErrorType =
+  | "grammar"
+  | "vocabulary"
+  | "spelling"
+  | "word_order"
+  | "conjugation"
+  | "register";
+
+export interface Correction {
+  id: number;
+  original: string;
+  corrected: string;
+  error_type: ErrorType;
+  explanation: string;
+  severity: 1 | 2 | 3;
+}
+
 export interface Turn {
   id: number;
   role: "learner" | "partner";
   text: string;
   created_at: string;
+  corrections: Correction[];
+}
+
+export interface CorrectionsEvent {
+  turn_id: number;
+  status: "ok" | "failed";
+  corrections: Correction[];
 }
 
 export interface PracticeSession {
   id: number;
   scenario: Scenario;
   target_language: string;
+  native_language: string;
   cefr_level: CefrLevel;
   started_at: string;
   ended_at: string | null;

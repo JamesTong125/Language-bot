@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 
+import { CorrectionChips } from "@/components/conversation/CorrectionChips";
 import { HintPanel } from "@/components/conversation/HintPanel";
 import { MessageBubble, TypingIndicator } from "@/components/conversation/MessageBubble";
 import { Alert, Button, ErrorState, Spinner } from "@/components/ui";
@@ -40,10 +41,12 @@ function Conversation({ initial }: { initial: PracticeSession }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHints, setShowHints] = useState(false);
+  const [checking, setChecking] = useState<ReadonlySet<number>>(new Set());
   const logEnd = useRef<HTMLLIElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const lang = initial.target_language;
+  const nativeLang = initial.native_language;
   const ended = initial.ended_at !== null;
   const lastTurn = turns.at(-1);
   const awaitingReply = !sending && lastTurn?.role === "learner";
@@ -53,38 +56,66 @@ function Conversation({ initial }: { initial: PracticeSession }) {
     logEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [turns.length, streamText, pendingText, error]);
 
+  function setChecked(turnId: number, isChecking: boolean) {
+    setChecking((prev) => {
+      const next = new Set(prev);
+      if (isChecking) next.add(turnId);
+      else next.delete(turnId);
+      return next;
+    });
+  }
+
+  function resync() {
+    // Show exactly what the server saved, including corrections that arrived late.
+    api.getSession(initial.id).then((fresh) => setTurns(fresh.turns), () => undefined);
+  }
+
   async function run(body: { text: string } | { retry: true }) {
     setSending(true);
     setError(null);
     setStreamText(null);
     let learnerSaved = "retry" in body;
+    let learnerTurnId: number | null = null;
+    const finishReply = () => {
+      setStreamText(null);
+      setSending(false);
+      inputRef.current?.focus();
+    };
     try {
       await streamTurn(initial.id, body, {
         onLearnerTurn: (turn) => {
           learnerSaved = true;
+          learnerTurnId = turn.id;
           setPendingText(null);
           setTurns((prev) => [...prev, turn]);
+          setChecked(turn.id, true);
         },
         onToken: (text) => setStreamText((prev) => (prev ?? "") + text),
         onDone: (turn) => {
-          setStreamText(null);
           setTurns((prev) => [...prev, turn]);
+          finishReply();
+        },
+        onReplyError: (message) => {
+          setError(message);
+          finishReply();
+        },
+        onCorrections: ({ turn_id, corrections }) => {
+          setTurns((prev) => prev.map((t) => (t.id === turn_id ? { ...t, corrections } : t)));
+          setChecked(turn_id, false);
         },
       });
     } catch (err) {
-      setStreamText(null);
       setPendingText(null);
       setError(err instanceof Error ? err.message : "Something went wrong");
       // If the server never saved the message, give the text back so nothing is lost.
       if (!learnerSaved && "text" in body) setDraft((current) => current || body.text);
-      // Re-sync with the server so the transcript shows exactly what was saved.
-      api.getSession(initial.id).then((fresh) => setTurns(fresh.turns), () => undefined);
+      finishReply();
+      resync();
     } finally {
-      setSending(false);
-      inputRef.current?.focus();
+      // The stream is over. Stop "checking"; anything late appears on the next load.
+      if (learnerTurnId !== null) setChecked(learnerTurnId, false);
     }
   }
-
   function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     const text = draft.trim();
@@ -120,7 +151,16 @@ function Conversation({ initial }: { initial: PracticeSession }) {
         className="flex flex-1 flex-col gap-3 rounded-2xl bg-stone-100 p-3 sm:p-4"
       >
         {turns.map((turn) => (
-          <MessageBubble key={turn.id} role={turn.role} text={turn.text} lang={lang} />
+          <MessageBubble key={turn.id} role={turn.role} text={turn.text} lang={lang}>
+            {turn.role === "learner" && (
+              <CorrectionChips
+                corrections={turn.corrections}
+                checking={checking.has(turn.id)}
+                targetLang={lang}
+                nativeLang={nativeLang}
+              />
+            )}
+          </MessageBubble>
         ))}
         {pendingText !== null && (
           <MessageBubble role="learner" text={pendingText} lang={lang} pending />

@@ -4,10 +4,12 @@ A web app for practising a target language through role-played real-life scenari
 chats with an AI partner, gets gentle corrections after each message, and builds a vocabulary
 deck from their own mistakes.
 
-The app is built in phases (see the build spec). **Current status: Phase 2, Text conversation.**
+The app is built in phases (see the build spec). **Current status: Phase 3, Corrections.**
 Accounts, onboarding, profiles, data export, and account deletion work (Phase 1). Learners can
 pick a scenario and hold a streamed text conversation with the AI partner, with optional hints
-(Phase 2). Corrections arrive in Phase 3.
+(Phase 2). Each learner message is checked in the background, and corrections appear as chips
+under it that expand to show the fix and an explanation in the learner's native language
+(Phase 3). The vocabulary deck arrives in Phase 4.
 
 | Part     | Stack                                                    | Folder      |
 | -------- | -------------------------------------------------------- | ----------- |
@@ -43,6 +45,11 @@ It sends one short request to each configured provider and prints the timing. Ad
 to try other models with the chat provider's key, for example
 `... llm_smoke gemini-3.8-flash gemini-3.5-flash-lite`.
 
+To see how well the analysis model finds mistakes, run
+`docker compose exec api python -m scripts.eval_corrections --runs 2`. It runs the seeded
+messages in `backend/tests/data/correction_cases.json` through the real model and prints a
+pass rate.
+
 To stop, press Ctrl+C or run `docker compose down`. To also delete the database volume, run
 `docker compose down -v`.
 
@@ -58,7 +65,7 @@ Compose reads `.env` from the repo root. `.env.example` lists every variable.
 | `COOKIE_SECURE`       | api     | `false`                                    | Set `true` when serving over https.                     |
 | `NEXT_PUBLIC_API_URL` | web     | `http://localhost:8000`                    | Where the browser sends API requests.                   |
 | `LLM_CHAT_BASE_URL`, `LLM_CHAT_API_KEY`, `LLM_CHAT_MODEL` | api | Gemini OpenAI-compatible endpoint, `gemini-3.8-flash` | The conversation partner. |
-| `LLM_ANALYSIS_BASE_URL`, `LLM_ANALYSIS_API_KEY`, `LLM_ANALYSIS_MODEL` | api | `https://api.groq.com/openai/v1`, `openai/gpt-oss-20b` | Hints now; error analysis and wrap-up later. |
+| `LLM_ANALYSIS_BASE_URL`, `LLM_ANALYSIS_API_KEY`, `LLM_ANALYSIS_MODEL` | api | `https://api.groq.com/openai/v1`, `openai/gpt-oss-20b` | Error analysis and hints; wrap-up in Phase 4. |
 | `LLM_FALLBACK_BASE_URL`, `LLM_FALLBACK_API_KEY`, `LLM_FALLBACK_MODEL` | api | not set | Used when the main provider is rate limited, down, or times out. For example Ollama at `http://host.docker.internal:11434/v1`. |
 | `LLM_DAILY_REQUEST_BUDGET` | api | not set | Soft cap. Logs a warning at 80% and 100% of daily requests. |
 | `LLM_<ROLE>_REASONING_EFFORT` | api | not set | `low`, `medium`, etc. for thinking models. `low` makes Gemini and gpt-oss much faster. |
@@ -125,7 +132,7 @@ database once with
 | `PUT /profile`               | Set native language, target language, level, goals             |
 | `GET /scenarios`             | Built-in scenarios plus the learner's custom ones              |
 | `POST /sessions`             | Start a session (`{"scenario_id"}`); returns the opening line  |
-| `GET /sessions/{id}`         | Full transcript                                                |
+| `GET /sessions/{id}`         | Full transcript with corrections                               |
 | `POST /sessions/{id}/turns`  | `{"text"}` or `{"retry": true}`; streams the reply over SSE    |
 | `POST /sessions/{id}/hint`   | Suggestions for what to say next                               |
 | `GET /account/export`        | Download all of the user's data as JSON                        |
@@ -138,7 +145,9 @@ The session is a JWT in an httpOnly, `SameSite=Lax` cookie named `access_token`.
 
 The turns endpoint streams these SSE events: `learner_turn` (the saved message), `token`
 (`{"text"}` chunks), then `done` (the saved partner turn) or `error` (`{"message", "retryable"}`).
-The learner message is always kept, so after an `error` the client can send `{"retry": true}`.
+For a new message, `corrections` (`{"turn_id", "status", "corrections"}`) follows once the
+background error analysis finishes, and then the stream closes. The learner message is always
+kept, so after an `error` the client can send `{"retry": true}`.
 
 ## Project layout
 
@@ -160,11 +169,11 @@ backend/
     services/        database logic and conversation flow
     security/        password hashing, JWT, cookies
   alembic/           migrations (one revision per phase)
-  scripts/           manual tools, e.g. llm_smoke.py
-  tests/             pytest suite; tests/fakes.py holds FakeLLMClient
+  scripts/           manual tools: llm_smoke.py, eval_corrections.py
+  tests/             pytest suite; fakes.py holds FakeLLMClient, data/ the seeded cases
 frontend/
   app/               pages: landing, login, register, onboarding, home, profile, sessions/[id]
-  components/        AppShell, forms, ScenarioPicker, conversation/ (chat UI, hints)
+  components/        AppShell, forms, ScenarioPicker, conversation/ (chat, chips, hints)
   lib/               API client, SSE reader, types
 db/init/             SQL run when the Postgres volume is first created
 docs/decisions.md    decision log
