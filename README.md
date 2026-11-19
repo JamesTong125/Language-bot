@@ -4,6 +4,8 @@ Practise a language by role-playing real situations with an AI partner. Order co
 into a hotel, or get through a job interview. You get gentle corrections after every message,
 and the words you got wrong turn into flashcards you review over time.
 
+![A conversation at a café, with correction chips under the learner's messages and hints for what to say next](docs/screenshots/conversation.png)
+
 ## Features
 
 ### Role-play scenarios
@@ -12,6 +14,8 @@ and the words you got wrong turn into flashcards you review over time.
   apartment, a job interview, returning a faulty product, and a debate about city plans.
 - Each scene has a character for the partner to play and a goal for you to reach.
 - Scenario cards show whether a scene is easy, at your level, or a stretch.
+
+<img src="docs/screenshots/scenarios.png" alt="The scenario picker, showing the learner's current language and level above cards for each scene" width="720">
 
 ### Conversations at your level
 - The partner speaks only your target language and stays in character, even if you try to
@@ -31,6 +35,8 @@ and the words you got wrong turn into flashcards you review over time.
   grammar, vocabulary, spelling, word order, conjugation, or tone.
 - Tone depends on the scene, so slang is flagged in a job interview but fine at a café.
 
+<img src="docs/screenshots/conversation-mobile.png" alt="The conversation on a phone, with a correction chip expanded to show its explanation" width="300">
+
 ### Session summaries
 - When you end a session you get a short review: what went well, your most common
   mistakes, and three things to practise next.
@@ -38,6 +44,8 @@ and the words you got wrong turn into flashcards you review over time.
   Remove any card you don't want.
 - Words already in your deck aren't added twice, even if they're written a little
   differently ("un café", "el café", "café.").
+
+<img src="docs/screenshots/summary.png" alt="A session summary with what went well, recurring mistakes, things to practise, and the new flashcards" width="720">
 
 ### Flashcard review
 - A flashcard deck built from your own conversations.
@@ -47,6 +55,11 @@ and the words you got wrong turn into flashcards you review over time.
 - The deck page lets you search, filter (due now, new, learning, from mistakes), and remove
   cards. The home page tells you when cards are due.
 
+<p>
+  <img src="docs/screenshots/review.png" alt="A flashcard showing the answer and a row of six rating buttons" width="49%">
+  <img src="docs/screenshots/vocab.png" alt="The vocabulary deck with search, filters, and cards marked as coming from a mistake" width="49%">
+</p>
+
 ### Your account
 - Learn several languages from one account. Each language keeps its own level, goals,
   history, and deck.
@@ -54,6 +67,8 @@ and the words you got wrong turn into flashcards you review over time.
   Swedish, Japanese, Korean, and Mandarin Chinese.
 - Download everything the app stores about you, or delete your account and all its data.
 - Works on phones as well as desktop, and every page can be used with the keyboard.
+
+<img src="docs/screenshots/onboarding.png" alt="The setup page for choosing your native language, target language, level, and goals" width="720">
 
 ### Coming next
 - **Voice:** speak your replies and hear the partner's messages read aloud.
