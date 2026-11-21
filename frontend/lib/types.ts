@@ -82,6 +82,7 @@ export interface PracticeSession {
   target_language: string;
   native_language: string;
   cefr_level: CefrLevel;
+  is_private: boolean;
   started_at: string;
   ended_at: string | null;
   summary: string | null;
@@ -140,4 +141,42 @@ export interface WrapUpResult {
   error_rate: number | null;
   new_vocab: VocabItem[];
   skipped_duplicates: number;
+}
+export interface ScenarioList {
+  scenarios: Scenario[];
+  private_available: boolean;
+}
+
+export interface LevelProgress {
+  current_level: CefrLevel;
+  direction: "up" | "down" | null;
+  suggested_level: CefrLevel | null;
+  average_error_rate: number | null;
+  sessions_counted: number;
+  sessions_needed: number;
+  session_ids: number[];
+  up_threshold: number;
+  down_threshold: number;
+}
+
+export interface Stats {
+  time_zone: string;
+  streak: { days: number; practised_today: boolean };
+  totals: {
+    sessions_completed: number;
+    learner_messages: number;
+    vocab_items: number;
+    vocab_due: number;
+    reviews: number;
+  };
+  sessions_per_week: { week_start: string; sessions: number }[];
+  error_rate_trend: {
+    session_id: number;
+    ended_at: string;
+    scenario_title: string;
+    cefr_level: CefrLevel;
+    error_rate: number;
+  }[];
+  error_types: { error_type: ErrorType; count: number }[];
+  level: LevelProgress;
 }
