@@ -6,8 +6,10 @@ import type {
   PracticeSession,
   ProfileResponse,
   ProfileUpdate,
-  Scenario,
   ReviewQueue,
+  Scenario,
+  ScenarioList,
+  Stats,
   Turn,
   User,
   VocabFilter,
@@ -94,9 +96,14 @@ export const api = {
   deleteAccount: (password: string) =>
     request<void>("/account", { method: "DELETE", body: json({ password }) }),
 
-  scenarios: () => request<{ scenarios: Scenario[] }>("/scenarios"),
-  startSession: (scenarioId: number) =>
-    request<PracticeSession>("/sessions", { method: "POST", body: json({ scenario_id: scenarioId }) }),
+  scenarios: () => request<ScenarioList>("/scenarios"),
+  createScenario: (description: string) =>
+    request<Scenario>("/scenarios", { method: "POST", body: json({ description }) }),
+  startSession: (scenarioId: number, isPrivate = false) =>
+    request<PracticeSession>("/sessions", {
+      method: "POST",
+      body: json({ scenario_id: scenarioId, private: isPrivate }),
+    }),
   getSession: (id: number) => request<PracticeSession>(`/sessions/${id}`),
   hint: (id: number) => request<Hint>(`/sessions/${id}/hint`, { method: "POST" }),
   endSession: (id: number) => request<WrapUpResult>(`/sessions/${id}/end`, { method: "POST" }),
@@ -118,6 +125,11 @@ export const api = {
       body: json({ rating }),
     }),
   deleteVocab: (id: number) => request<void>(`/vocab/${id}`, { method: "DELETE" }),
+
+  stats: () => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return request<Stats>(`/stats?tz=${encodeURIComponent(tz)}`);
+  },
 };
 
 export interface TurnHandlers {

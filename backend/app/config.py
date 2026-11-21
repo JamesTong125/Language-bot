@@ -43,11 +43,25 @@ class Settings(BaseSettings):
     llm_fallback_reasoning_effort: str = ""
     llm_fallback_json_mode: bool = False
 
+    # --- LLM: optional private provider for private sessions (e.g. a local Ollama server) ---
+    # Private sessions use only this provider, for every call, with no fallback.
+    llm_private_base_url: str = ""
+    llm_private_api_key: str = ""
+    llm_private_model: str = ""
+    llm_private_max_tokens: int = 1024
+    llm_private_reasoning_effort: str = ""
+    llm_private_json_mode: bool = False
+
     # --- LLM: shared behaviour ---
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
     llm_daily_request_budget: int | None = None
     llm_history_turns: int = 20
+
+    # --- Rate limits (per user) ---
+    rate_limit_turns_per_minute: int = 10
+    rate_limit_sessions_per_day: int = 30
+    rate_limit_scenarios_per_day: int = 10
 
 
 @lru_cache

@@ -1,4 +1,4 @@
-"""Builds the chat and analysis clients from env vars. Use these as FastAPI dependencies."""
+"""Builds the LLM clients from env vars. Use these as FastAPI dependencies."""
 
 from functools import lru_cache
 
@@ -11,11 +11,11 @@ from app.llm.provider_config import ProviderConfig, Role, provider_config
 from app.llm.usage import UsageRecorder
 
 
-def _build(primary_role: Role) -> FailoverClient:
+def _build(*roles: Role) -> FailoverClient:
     settings = get_settings()
     recorder = UsageRecorder(get_session_factory(), settings.llm_daily_request_budget)
     configs: list[ProviderConfig] = []
-    for role in (primary_role, "fallback"):
+    for role in roles:
         config = provider_config(settings, role)
         if config.is_configured and not any(config.same_endpoint(c) for c in configs):
             configs.append(config)
@@ -26,10 +26,17 @@ def _build(primary_role: Role) -> FailoverClient:
 @lru_cache
 def get_chat_llm() -> LLMClient:
     """The conversation partner: chat provider, then fallback."""
-    return _build("chat")
+    return _build("chat", "fallback")
 
 
 @lru_cache
 def get_analysis_llm() -> LLMClient:
     """Analysis, wrap-up, and hints: analysis provider, then fallback."""
-    return _build("analysis")
+    return _build("analysis", "fallback")
+
+
+@lru_cache
+def get_private_llm() -> LLMClient | None:
+    """The private provider for private sessions, with no fallback. None if not configured."""
+    client = _build("private")
+    return client if client.has_providers else None

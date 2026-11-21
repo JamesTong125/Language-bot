@@ -5,7 +5,16 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from app.deps import AnalysisLLM, AppSettings, ChatLLM, CurrentProfile, CurrentUser, DbSession
+from app.deps import (
+    AnalysisLLM,
+    AppSettings,
+    ChatLLM,
+    CurrentProfile,
+    CurrentUser,
+    DbSession,
+    PrivateLLM,
+    too_many_requests,
+)
 from app.llm.base import AllProvidersFailedError, LLMClient, LLMError, LLMNotConfiguredError
 from app.models import PracticeSession, User
 from app.schemas.conversation import (
@@ -29,6 +38,7 @@ from app.services.practice_sessions import (
     start_session,
     suggest_hint,
 )
+from app.services.rate_limits import RateLimitedError, check_sessions, check_turns
 from app.services.scenarios import get_visible_scenario
 from app.services.wrapup import end_session, existing_result
 from app.sse import SSE_HEADERS, sse_event
@@ -44,7 +54,8 @@ def session_out(session: PracticeSession, native_language: str) -> SessionOut:
         scenario=ScenarioOut.model_validate(session.scenario),
         target_language=session.learner_profile.target_language,
         native_language=native_language,
-        cefr_level=session.learner_profile.cefr_level,
+        cefr_level=session.cefr_level,
+        is_private=session.is_private,
         started_at=session.started_at,
         ended_at=session.ended_at,
         turns=[TurnOut.model_validate(t) for t in session.turns],
@@ -57,6 +68,22 @@ def llm_error_message(exc: LLMError) -> str:
     if isinstance(exc, AllProvidersFailedError):
         return exc.user_message
     return "The AI partner couldn't reply. Please try again."
+
+
+PRIVATE_UNAVAILABLE = (
+    "Private sessions aren't available: no private model is configured on the server."
+)
+
+
+def pick_llm(is_private: bool, normal: LLMClient, private: LLMClient | None) -> LLMClient:
+    """Private sessions only ever use the private provider. Never fall back to the cloud."""
+    if not is_private:
+        return normal
+    if private is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=PRIVATE_UNAVAILABLE
+        )
+    return private
 
 
 async def _load(db: DbSession, session_id: int, user: User) -> PracticeSession:
@@ -73,13 +100,28 @@ async def create_session(
     profile: CurrentProfile,
     db: DbSession,
     llm: ChatLLM,
+    private_llm: PrivateLLM,
     settings: AppSettings,
 ) -> SessionOut:
     scenario = await get_visible_scenario(db, body.scenario_id, user.id, profile.target_language)
     if scenario is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scenario not found")
+    if body.private and private_llm is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=PRIVATE_UNAVAILABLE)
     try:
-        session = await start_session(db, user, profile, scenario, llm, settings.llm_history_turns)
+        await check_sessions(db, user.id, settings.rate_limit_sessions_per_day)
+    except RateLimitedError as exc:
+        raise too_many_requests(exc) from exc
+    try:
+        session = await start_session(
+            db,
+            user,
+            profile,
+            scenario,
+            pick_llm(body.private, llm, private_llm),
+            settings.llm_history_turns,
+            is_private=body.private,
+        )
     except LLMError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=llm_error_message(exc)
@@ -151,6 +193,7 @@ async def post_turn(
     db: DbSession,
     llm: ChatLLM,
     analysis_llm: AnalysisLLM,
+    private_llm: PrivateLLM,
     settings: AppSettings,
 ) -> StreamingResponse:
     """Save the learner message, then stream the partner reply as SSE.
@@ -164,10 +207,16 @@ async def post_turn(
     if session.ended_at is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This session has ended")
     assert user.native_language  # Sessions only exist for onboarded users.
+    chat_client = pick_llm(session.is_private, llm, private_llm)
+    analysis_client = pick_llm(session.is_private, analysis_llm, private_llm)
 
     learner_turn: TurnOut | None = None
     analysis: AnalysisTask | None = None
     if body.text is not None:
+        try:
+            await check_turns(db, user.id, settings.rate_limit_turns_per_minute)
+        except RateLimitedError as exc:
+            raise too_many_requests(exc) from exc
         turn = await add_learner_turn(db, session, body.text)
         learner_turn = TurnOut.new(turn)
         session = await _load(db, session_id, user)
@@ -176,7 +225,7 @@ async def post_turn(
             session.id,
             turn.id,
             analysis_input(session, user.native_language),
-            analysis_llm,
+            analysis_client,
             usage_tag=f"session:{session.id}:analysis",
         )
     elif not session.turns or session.turns[-1].role != "learner":
@@ -186,7 +235,7 @@ async def post_turn(
 
     plan = plan_reply(session, user.native_language, settings.llm_history_turns)
     return StreamingResponse(
-        _reply_events(plan, llm, learner_turn, analysis),
+        _reply_events(plan, chat_client, learner_turn, analysis),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
@@ -198,6 +247,7 @@ async def post_end(
     user: CurrentUser,
     db: DbSession,
     llm: AnalysisLLM,
+    private_llm: PrivateLLM,
 ) -> WrapUpResult:
     """Run the wrap-up: summary, error rate, and new vocab cards (duplicates skipped).
 
@@ -207,7 +257,8 @@ async def post_end(
     session = await _load(db, session_id, user)
     assert user.native_language
     try:
-        return await end_session(db, session, user.id, user.native_language, llm)
+        client = pick_llm(session.is_private, llm, private_llm)
+        return await end_session(db, session, user.id, user.native_language, client)
     except LLMError as exc:
         logger.warning("Wrap-up failed for session %d: %s", session_id, type(exc).__name__)
         raise HTTPException(
@@ -232,12 +283,14 @@ async def post_hint(
     user: CurrentUser,
     db: DbSession,
     llm: AnalysisLLM,
+    private_llm: PrivateLLM,
     settings: AppSettings,
 ) -> HintOut:
     session = await _load(db, session_id, user)
     assert user.native_language
+    client = pick_llm(session.is_private, llm, private_llm)
     try:
-        return await suggest_hint(session, user.native_language, llm, settings.llm_history_turns)
+        return await suggest_hint(session, user.native_language, client, settings.llm_history_turns)
     except LLMError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

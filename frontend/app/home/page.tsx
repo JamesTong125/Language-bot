@@ -4,13 +4,14 @@ import Link from "next/link";
 
 import { AppShell, languageName } from "@/components/AppShell";
 import { ScenarioPicker } from "@/components/ScenarioPicker";
+import { HomeLevelSuggestion } from "@/components/progress/HomeLevelSuggestion";
 import { DueCards } from "@/components/vocab/DueCards";
 import { Card } from "@/components/ui";
 
 export default function HomePage() {
   return (
     <AppShell>
-      {({ profile, languages }) => {
+      {({ profile, languages, reload }) => {
         const current = profile.current;
         if (!current) return null;
         return (
@@ -33,6 +34,7 @@ export default function HomePage() {
                 Change language or level
               </Link>
             </Card>
+            <HomeLevelSuggestion key={current.updated_at} profile={profile} onChanged={reload} />
             <DueCards key={current.id} />
             <section aria-labelledby="scenarios-heading">
               <h2 id="scenarios-heading" className="text-xl font-bold">

@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from app.config import Settings
 
-Role = Literal["chat", "analysis", "fallback"]
+Role = Literal["chat", "analysis", "fallback", "private"]
 
 
 @dataclass(frozen=True)

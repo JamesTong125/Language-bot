@@ -23,6 +23,8 @@ class ExportedSession(BaseModel):
     learner_profile_id: int
     scenario_id: int
     scenario_title: str
+    cefr_level: str
+    is_private: bool
     started_at: datetime
     ended_at: datetime | None
     summary: SummaryOut | None

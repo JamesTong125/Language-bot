@@ -22,10 +22,13 @@ class ScenarioOut(BaseModel):
 
 class ScenarioList(BaseModel):
     scenarios: list[ScenarioOut]
+    # True when the server has a private provider, so the picker can offer private sessions.
+    private_available: bool = False
 
 
 class StartSessionRequest(BaseModel):
     scenario_id: int
+    private: bool = False
 
 
 class CorrectionOut(BaseModel):
@@ -62,6 +65,7 @@ class SessionOut(BaseModel):
     target_language: str
     native_language: str
     cefr_level: CefrLevel
+    is_private: bool
     started_at: datetime
     ended_at: datetime | None
     turns: list[TurnOut]

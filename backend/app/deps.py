@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.llm.base import LLMClient
-from app.llm.factory import get_analysis_llm, get_chat_llm
+from app.llm.factory import get_analysis_llm, get_chat_llm, get_private_llm
 from app.models import LearnerProfile, User
 from app.security.cookies import COOKIE_NAME
 from app.security.tokens import decode_user_id
 from app.services.profiles import get_current_profile as get_current_profile_for
+from app.services.rate_limits import RateLimitedError
 from app.services.users import get_user
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -52,3 +53,12 @@ async def get_current_profile(user: CurrentUser, db: DbSession) -> LearnerProfil
 CurrentProfile = Annotated[LearnerProfile, Depends(get_current_profile)]
 ChatLLM = Annotated[LLMClient, Depends(get_chat_llm)]
 AnalysisLLM = Annotated[LLMClient, Depends(get_analysis_llm)]
+PrivateLLM = Annotated[LLMClient | None, Depends(get_private_llm)]
+
+
+def too_many_requests(exc: RateLimitedError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=exc.message,
+        headers={"Retry-After": str(exc.retry_after_seconds)},
+    )

@@ -30,7 +30,11 @@ Compose reads `.env` from the repo root. `.env.example` lists every variable.
 | `LLM_CHAT_BASE_URL`, `LLM_CHAT_API_KEY`, `LLM_CHAT_MODEL` | api | Gemini OpenAI-compatible endpoint, `gemini-3.8-flash` | The conversation partner. |
 | `LLM_ANALYSIS_BASE_URL`, `LLM_ANALYSIS_API_KEY`, `LLM_ANALYSIS_MODEL` | api | `https://api.groq.com/openai/v1`, `openai/gpt-oss-20b` | Error analysis, session wrap-up, and hints. |
 | `LLM_FALLBACK_BASE_URL`, `LLM_FALLBACK_API_KEY`, `LLM_FALLBACK_MODEL` | api | not set | Used when the main provider is rate limited, down, or times out. For example Ollama at `http://host.docker.internal:11434/v1`. |
+| `LLM_PRIVATE_BASE_URL`, `LLM_PRIVATE_API_KEY`, `LLM_PRIVATE_MODEL` | api | not set | The model for private sessions, for example a local Ollama server. When set, learners can start private sessions, which use only this provider. |
 | `LLM_DAILY_REQUEST_BUDGET` | api | not set | Soft cap. Logs a warning at 80% and 100% of daily requests. |
+| `RATE_LIMIT_TURNS_PER_MINUTE` | api | `10` | Learner messages per user per minute. `0` turns it off. |
+| `RATE_LIMIT_SESSIONS_PER_DAY` | api | `30` | Sessions started per user per rolling 24 hours. |
+| `RATE_LIMIT_SCENARIOS_PER_DAY` | api | `10` | Custom scenarios created per user per rolling 24 hours. |
 | `LLM_<ROLE>_REASONING_EFFORT` | api | not set | `low`, `medium`, etc. for thinking models. `low` makes Gemini and gpt-oss much faster. |
 | `LLM_<ROLE>_MAX_TOKENS` | api | `1024` | Output token cap per call. Reasoning tokens count against it. |
 | `LLM_<ROLE>_JSON_MODE` | api | `false` | Use the provider's native JSON mode. Only for providers that support it. Recommended `true` for Groq. |
@@ -38,7 +42,7 @@ Compose reads `.env` from the repo root. `.env.example` lists every variable.
 | `LLM_MAX_RETRIES` | api | `2` | Retries on 429 and 5xx before switching to the fallback. |
 | `LLM_HISTORY_TURNS` | api | `20` | Turns of conversation history sent with each reply. |
 
-`<ROLE>` is `CHAT`, `ANALYSIS`, or `FALLBACK`. Generate a JWT secret with
+`<ROLE>` is `CHAT`, `ANALYSIS`, `FALLBACK`, or `PRIVATE`. Generate a JWT secret with
 `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
 API keys stay on the server. The browser only talks to the FastAPI backend.
@@ -88,8 +92,9 @@ database once with `docker compose exec db createdb -U immersion immersion_test`
 | `POST /auth/logout`          | Clear the session cookie                                       |
 | `GET /profile`               | Email, native language, current profile, all profiles          |
 | `PUT /profile`               | Set native language, target language, level, goals             |
-| `GET /scenarios`             | Built-in scenarios plus the learner's custom ones              |
-| `POST /sessions`             | Start a session (`{"scenario_id"}`); returns the opening line  |
+| `GET /scenarios`             | Built-in plus the learner's custom scenarios; `private_available` |
+| `POST /scenarios`            | Create a custom scenario from `{"description"}`                |
+| `POST /sessions`             | Start a session (`{"scenario_id", "private"}`); returns the opening line |
 | `GET /sessions/{id}`         | Full transcript with corrections                               |
 | `POST /sessions/{id}/turns`  | `{"text"}` or `{"retry": true}`; streams the reply over SSE    |
 | `POST /sessions/{id}/hint`   | Suggestions for what to say next                               |
@@ -99,11 +104,14 @@ database once with `docker compose exec db createdb -U immersion immersion_test`
 | `GET /vocab/review`          | Cards due now, oldest first                                    |
 | `POST /vocab/{id}/review`    | `{"rating": 0-5}`; returns the updated schedule                |
 | `DELETE /vocab/{id}`         | Remove a card                                                  |
+| `GET /stats?tz=`             | Streak, sessions per week, mistake trend and types, level progress |
 | `GET /account/export`        | Download all of the user's data as JSON                        |
 | `DELETE /account`            | Delete the user and all related data (body: `{"password"}`)    |
 | `GET /debug/llm-usage`       | Requests and tokens per provider per day, and budget used      |
 | `GET /languages`             | Supported languages and CEFR levels                            |
 | `GET /health`                | Liveness check, including the database                         |
+
+Rate-limited requests return 429 with a `Retry-After` header.
 
 The session is a JWT in an httpOnly, `SameSite=Lax` cookie named `access_token`.
 
@@ -112,6 +120,13 @@ The turns endpoint streams these SSE events: `learner_turn` (the saved message),
 For a new message, `corrections` (`{"turn_id", "status", "corrections"}`) follows once the
 background error analysis finishes, and then the stream closes. The learner message is always
 kept, so after an `error` the client can send `{"retry": true}`.
+
+## Voice
+
+Voice runs entirely in the browser through the Web Speech API (`frontend/lib/speech.ts`).
+Automated browser tests replace it with scripted fakes, so try a real microphone by hand in
+Chrome or Edge: start a session, switch on hands-free, and answer a few lines out loud.
+Recognition needs a secure context; `localhost` counts as one.
 
 ## Project layout
 
@@ -128,6 +143,7 @@ backend/
     prompts/         versioned prompt files (*_v1.md)
     conversation/    prompt builders (pure functions)
     srs/             spaced-repetition scheduler (pure function)
+    progress/        level suggestions and streak/week maths (pure functions)
     models/          SQLAlchemy models
     schemas/         Pydantic request and response models
     routers/         HTTP endpoints, kept thin
@@ -138,10 +154,10 @@ backend/
   tests/             pytest suite; fakes.py holds FakeLLMClient, data/ the seeded cases
 frontend/
   app/               pages: landing, login, register, onboarding, home, profile,
-                     sessions/[id], sessions/[id]/summary, vocab, review
+                     sessions/[id], sessions/[id]/summary, vocab, review, progress
   components/        AppShell, forms, ScenarioPicker, conversation/ (chat, chips, hints,
-                     summary), vocab/ (deck, review flow)
-  lib/               API client, SSE reader, types
+                     summary, voice), vocab/ (deck, review flow), progress/ (dashboard)
+  lib/               API client, SSE reader, speech (Web Speech API), types
 db/init/             SQL run when the Postgres volume is first created
 docs/decisions.md    decision log
 ```

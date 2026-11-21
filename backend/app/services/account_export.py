@@ -71,6 +71,8 @@ async def build_export(db: AsyncSession, user: User) -> AccountExport:
                 learner_profile_id=s.learner_profile_id,
                 scenario_id=s.scenario_id,
                 scenario_title=s.scenario.title,
+                cefr_level=s.cefr_level,
+                is_private=s.is_private,
                 started_at=s.started_at,
                 ended_at=s.ended_at,
                 summary=parse_summary(s.summary),

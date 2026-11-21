@@ -27,15 +27,27 @@ class NotOnboardedError(Exception):
     pass
 
 
-def scene_for(scenario: Scenario, profile: LearnerProfile, native_language: str) -> SceneContext:
+def scene_for(
+    scenario: Scenario, target_language: str, level: str, native_language: str
+) -> SceneContext:
     return SceneContext(
         title=scenario.title,
         description=scenario.description,
         persona=scenario.partner_persona,
         goal=scenario.goal,
-        target_language=profile.target_language,
+        target_language=target_language,
         native_language=native_language,
-        level=profile.cefr_level,
+        level=level,
+    )
+
+
+def session_scene(session: PracticeSession, native_language: str) -> SceneContext:
+    """The scene at the level the session started at."""
+    return scene_for(
+        session.scenario,
+        session.learner_profile.target_language,
+        session.cefr_level,
+        native_language,
     )
 
 
@@ -54,18 +66,25 @@ async def start_session(
     scenario: Scenario,
     llm: LLMClient,
     history_limit: int,
+    is_private: bool = False,
 ) -> PracticeSession:
     """Generate the opening line first, then save the session and turn together.
 
-    If the LLM fails, nothing is saved and the error propagates.
+    If the LLM fails, nothing is saved and the error propagates. ``llm`` must already be
+    the private client when ``is_private`` is set.
     """
     if not user.native_language:
         raise NotOnboardedError
-    scene = scene_for(scenario, profile, user.native_language)
+    scene = scene_for(scenario, profile.target_language, profile.cefr_level, user.native_language)
     messages = build_partner_messages(scene, [], history_limit)
     opening = await collect(llm.stream_chat(messages, usage_tag="session:new"))
 
-    session = PracticeSession(learner_profile_id=profile.id, scenario_id=scenario.id)
+    session = PracticeSession(
+        learner_profile_id=profile.id,
+        scenario_id=scenario.id,
+        cefr_level=profile.cefr_level,
+        is_private=is_private,
+    )
     db.add(session)
     await db.flush()
     db.add(Turn(session_id=session.id, role="partner", text=opening))
@@ -117,7 +136,7 @@ def analysis_input(session: PracticeSession, native_language: str) -> AnalysisIn
     return AnalysisInput(
         target_language=session.learner_profile.target_language,
         native_language=native_language,
-        level=session.learner_profile.cefr_level,
+        level=session.cefr_level,
         learner_text=learner.text,
         previous_partner_text=previous.text if previous and previous.role == "partner" else None,
         scene=f"{session.scenario.title}. The learner is talking to: "
@@ -126,7 +145,7 @@ def analysis_input(session: PracticeSession, native_language: str) -> AnalysisIn
 
 
 def plan_reply(session: PracticeSession, native_language: str, history_limit: int) -> ReplyPlan:
-    scene = scene_for(session.scenario, session.learner_profile, native_language)
+    scene = session_scene(session, native_language)
     return ReplyPlan(
         session_id=session.id,
         messages=build_partner_messages(scene, _turn_texts(session.turns), history_limit),
@@ -147,6 +166,6 @@ async def save_partner_turn(session_id: int, text: str) -> TurnOut:
 async def suggest_hint(
     session: PracticeSession, native_language: str, llm: LLMClient, history_limit: int
 ) -> HintOut:
-    scene = scene_for(session.scenario, session.learner_profile, native_language)
+    scene = session_scene(session, native_language)
     messages = build_hint_messages(scene, _turn_texts(session.turns), history_limit)
     return await llm.complete_json(messages, HintOut, usage_tag=f"session:{session.id}:hint")

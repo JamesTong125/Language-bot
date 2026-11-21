@@ -17,9 +17,10 @@ import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
+from app.config import Settings, get_settings  # noqa: E402
 from app.db import get_engine, get_session_factory  # noqa: E402
 from app.llm.base import LLMClient  # noqa: E402
-from app.llm.factory import get_analysis_llm, get_chat_llm  # noqa: E402
+from app.llm.factory import get_analysis_llm, get_chat_llm, get_private_llm  # noqa: E402
 from app.llm.failover import FailoverClient  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base, Scenario  # noqa: E402
@@ -55,15 +56,29 @@ def _no_real_llm() -> Iterator[None]:
     """Tests must never reach a real provider. Tests that need an LLM override these."""
     app.dependency_overrides[get_chat_llm] = lambda: FailoverClient([])
     app.dependency_overrides[get_analysis_llm] = lambda: FailoverClient([])
+    app.dependency_overrides[get_private_llm] = lambda: None
     yield
     app.dependency_overrides.clear()
 
 
-def use_llm(chat: LLMClient | None = None, analysis: LLMClient | None = None) -> None:
+def use_llm(
+    chat: LLMClient | None = None,
+    analysis: LLMClient | None = None,
+    private: LLMClient | None = None,
+) -> None:
     if chat is not None:
         app.dependency_overrides[get_chat_llm] = lambda: chat
     if analysis is not None:
         app.dependency_overrides[get_analysis_llm] = lambda: analysis
+    if private is not None:
+        app.dependency_overrides[get_private_llm] = lambda: private
+
+
+def use_settings(**changes: Any) -> Settings:
+    """Override settings for this test, e.g. ``use_settings(rate_limit_turns_per_minute=2)``."""
+    settings = get_settings().model_copy(update=changes)
+    app.dependency_overrides[get_settings] = lambda: settings
+    return settings
 
 
 async def add_scenario(**overrides: Any) -> int:

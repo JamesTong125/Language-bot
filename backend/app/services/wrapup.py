@@ -23,7 +23,7 @@ from app.schemas.wrapup import (
     select_vocab,
 )
 from app.services.analysis import wait_for_session
-from app.services.practice_sessions import get_owned_session, scene_for
+from app.services.practice_sessions import get_owned_session, session_scene
 from app.services.vocab import NewVocab, add_items, dedupe, existing_terms, utc_now
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ async def end_session(
             -WRAPUP_MAX_CORRECTIONS:
         ]
         messages = build_wrapup_messages(
-            scene_for(session.scenario, session.learner_profile, native_language),
+            session_scene(session, native_language),
             [TurnText(t.role, t.text) for t in session.turns],
             [CorrectionText(c.original, c.corrected, c.error_type) for c in corrections],
             MAX_VOCAB,

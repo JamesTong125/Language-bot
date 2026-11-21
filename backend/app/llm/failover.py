@@ -50,6 +50,10 @@ class FailoverClient:
     def name(self) -> str:
         return " -> ".join(p.name for p in self._providers) or "(none)"
 
+    @property
+    def has_providers(self) -> bool:
+        return bool(self._providers)
+
     def _require_providers(self) -> None:
         if not self._providers:
             raise LLMNotConfiguredError("No LLM provider is configured")

@@ -14,6 +14,8 @@ and the words you got wrong turn into flashcards you review over time.
   apartment, a job interview, returning a faulty product, and a debate about city plans.
 - Each scene has a character for the partner to play and a goal for you to reach.
 - Scenario cards show whether a scene is easy, at your level, or a stretch.
+- **Create your own:** describe a situation in a sentence, such as "returning a rental car
+  with a scratch", and the app writes the scene, the character, and a goal at your level.
 
 <img src="docs/screenshots/scenarios.png" alt="The scenario picker, showing the learner's current language and level above cards for each scene" width="720">
 
@@ -26,6 +28,16 @@ and the words you got wrong turn into flashcards you review over time.
 - If you write in your own language, the partner answers in simpler target-language words.
 - Replies appear as they are written.
 - Stuck? Turn on **hints** for two suggestions of what to say next. Click one to use it.
+
+### Voice
+- Press the microphone to speak your reply. What you say appears in the message box so you
+  can check it before sending.
+- Press the speaker next to any message to hear it read aloud in the language you're
+  practising.
+- Turn on **hands-free** to talk without touching the keyboard: each reply is read aloud,
+  then the app listens for your answer and sends it.
+- Voice works in Chrome, Edge, and Safari. In other browsers the voice buttons are hidden
+  and you type as usual.
 
 ### Gentle corrections
 - Every message you send is checked in the background while the partner replies.
@@ -60,6 +72,14 @@ and the words you got wrong turn into flashcards you review over time.
   <img src="docs/screenshots/vocab.png" alt="The vocabulary deck with search, filters, and cards marked as coming from a mistake" width="49%">
 </p>
 
+### Progress and levels
+- The **Progress** page shows your day streak, sessions per week, how many of your messages
+  had mistakes in recent sessions, and the kinds of mistakes you make most.
+- After three sessions at your level, the app suggests moving up if you made few mistakes,
+  or down if you made many. You decide: nothing changes until you press "Switch".
+
+<img src="docs/screenshots/progress.png" alt="The Progress page with a suggestion to move up a level, the day streak, the level ladder, and charts of sessions and mistakes" width="720">
+
 ### Your account
 - Learn several languages from one account. Each language keeps its own level, goals,
   history, and deck.
@@ -69,12 +89,6 @@ and the words you got wrong turn into flashcards you review over time.
 - Works on phones as well as desktop, and every page can be used with the keyboard.
 
 <img src="docs/screenshots/onboarding.png" alt="The setup page for choosing your native language, target language, level, and goals" width="720">
-
-### Coming next
-- **Voice:** speak your replies and hear the partner's messages read aloud.
-- **Custom scenarios:** describe a situation in a sentence and the app builds the scene.
-- **Progress dashboard:** your streak, the mistakes you make most, and suggestions for when
-  to move up or down a level.
 
 ## Getting started
 
@@ -106,8 +120,11 @@ Your conversations are sent to the AI providers you configure:
 - **Groq:** doesn't keep conversations by default. It may log them for up to 30 days to check
   reliability or abuse, unless you turn on Zero Data Retention.
   [Your data](https://console.groq.com/docs/your-data)
-- **Ollama:** runs on your own machine, so nothing leaves it. Point the app at a local Ollama
-  server for fully private practice.
+- **Ollama:** runs on your own machine, so nothing leaves it. Set up a local Ollama server as
+  the private model (`LLM_PRIVATE_*` in `.env`) and a **Private session** option appears when
+  you start a scenario. Everything in a private session stays on your machine.
+- **Voice:** your browser handles speech recognition. Chrome and Edge send the audio to
+  Google's or Microsoft's speech service; no audio reaches this app's server.
 
 Summaries checked in November 2026.
 
@@ -115,8 +132,8 @@ Summaries checked in November 2026.
 
 Next.js, TypeScript and Tailwind for the web app; FastAPI and Python for the API; and
 PostgreSQL for storage. The AI works with any OpenAI-compatible provider, using Gemini and
-Groq by default, with an optional fallback such as Ollama. Everything runs locally with
-Docker Compose.
+Groq by default, with an optional fallback and private model such as Ollama. Voice uses
+the browser's built-in Web Speech API. Everything runs locally with Docker Compose.
 
 Setup details, all settings, tests, and the API reference are in
 [docs/development.md](docs/development.md). Design decisions are in

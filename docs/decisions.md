@@ -267,3 +267,80 @@ Space or Enter shows the answer; keys 0 to 5 rate it. Labels: Forgot, Wrong, Alm
 Good, Easy. After each rating the page says when the card comes back. The review page
 reloads due cards each time it's shown (Next.js keeps hidden pages mounted). The
 "already in your deck" count is passed in the URL right after ending, since it isn't stored.
+
+## Phase 5: Voice
+
+### D38. Browser speech only, with feature detection
+Voice uses the Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition` and
+`speechSynthesis`), detected at runtime in `frontend/lib/speech.ts`. The language comes from
+each language's BCP 47 tag in `GET /languages` (D10), using the session's language. No audio
+reaches the server. Chrome and Edge send recognition audio to their vendor's speech service;
+Safari may process it on the device. Firefox has no recognition, so it falls back to typing.
+
+### D39. How voice works in a conversation
+- Every message has a speaker button that reads it aloud; pressing it again stops.
+- The microphone button fills the message box with what was heard, live, and leaves it for
+  the learner to check and send. Recognition mistakes are common, and the analysis would
+  otherwise "correct" words the learner never said.
+- The hands-free switch reads each partner reply aloud, listens, and sends the answer
+  automatically. It never listens while speaking, so the partner's voice isn't picked up.
+  After three silent attempts it pauses with a note; pressing the microphone resumes.
+- Errors that will repeat (microphone blocked, no microphone, no network, unsupported
+  language) show a message and switch hands-free off. Typing always works.
+- Voice stops when the learner leaves the page, since Next.js keeps hidden pages mounted.
+
+### D40. How voice is tested
+Real recognition can't run in headless browser tests. The browser test replaces the speech
+APIs with scripted fakes: a full hands-free session (three spoken answers, every reply read
+aloud in es-ES), the manual microphone, a blocked microphone, and a browser with no speech
+APIs at all, which hides the voice controls and keeps typing. Trying it with a real
+microphone in Chrome or Edge is still worth doing by hand.
+
+## Phase 6: Adaptation and polish
+
+### D41. Two columns added to `sessions` (data model change)
+- `cefr_level`: the learner's level when the session started. Level suggestions compare only
+  sessions at the current level, so after a level change the old sessions stop counting.
+  The partner also keeps that level for the whole session. Migration `0005` fills it in for
+  existing sessions with the profile's current level.
+- `is_private` (D44).
+**Please confirm or say if you'd prefer otherwise.**
+
+### D42. Level suggestions (`backend/app/progress/level.py`)
+The last 3 ended sessions at the current level with at least 3 learner messages each. An
+average error rate of 20% or less suggests moving up one level; 60% or more suggests moving
+down. Nothing changes until the learner presses "Switch to ...", which saves the profile.
+"Stay at ..." hides that suggestion in this browser (local storage) until newer sessions give
+a new one. The suggestion shows on the home page and the Progress page.
+
+### D43. Custom scenarios
+`POST /scenarios` with `{"description"}` (8 to 300 characters) asks the analysis model
+(`scenario_v1`) for a title, description, partner persona, and goal, written in the learner's
+native language. The scenario is saved for the current target language at the learner's
+current level, and only its creator sees it. The description goes in a separate message as
+data. The model can refuse unsuitable topics (`{"refused": true}`), which returns 422 and
+saves nothing. There's no delete yet: deleting a scenario would also delete its sessions.
+
+### D44. Private sessions
+The spec asks to "let the learner pick the local provider for private sessions". A new
+optional provider config, `LLM_PRIVATE_*`, is meant for a local Ollama server. When it's
+set, the scenario picker shows a "Private session" option. Every call in a private session
+(opening, replies, analysis, hints, wrap-up) goes to that provider only, with no fallback,
+so nothing reaches a cloud provider. If the private provider is later removed, the session's
+requests fail with 503 instead of silently using the cloud.
+
+### D45. Rate limits
+Counted from rows already in the database, so they hold across restarts: learner messages per
+user per minute (default 10), sessions started per rolling 24 hours (30), and custom scenarios
+per 24 hours (10). Over the limit returns 429 with a `Retry-After` header and saves nothing.
+Set a limit to 0 to turn it off. They're soft limits: two requests at the same instant can
+both pass. Retries of a failed reply aren't counted, since they don't add a message.
+
+### D46. Dashboard (`GET /stats`)
+- Streak: consecutive days with a message sent or a card reviewed, in any language. It
+  counts until today ends, so practising yesterday but not yet today keeps it.
+- Sessions per week (8 weeks, Monday start), mistakes per session (last 10 ended sessions,
+  oldest first), the most common mistake types, totals, and level progress.
+- Days and weeks use the browser's time zone (`tz`, an IANA name) and are computed in
+  Postgres. Unknown zones fall back to UTC.
+- Everything except the streak is for the current language.
