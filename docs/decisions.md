@@ -298,13 +298,12 @@ microphone in Chrome or Edge is still worth doing by hand.
 
 ## Phase 6: Adaptation and polish
 
-### D41. Two columns added to `sessions` (data model change)
+### D41. Two columns added to `sessions` (data model change) (approved)
 - `cefr_level`: the learner's level when the session started. Level suggestions compare only
   sessions at the current level, so after a level change the old sessions stop counting.
   The partner also keeps that level for the whole session. Migration `0005` fills it in for
   existing sessions with the profile's current level.
 - `is_private` (D44).
-**Please confirm or say if you'd prefer otherwise.**
 
 ### D42. Level suggestions (`backend/app/progress/level.py`)
 The last 3 ended sessions at the current level with at least 3 learner messages each. An
