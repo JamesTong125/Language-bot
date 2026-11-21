@@ -4,7 +4,7 @@ export default function Landing() {
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-16">
       <h1 className="text-4xl font-bold tracking-tight text-stone-900 sm:text-5xl">
-        Language Immersion Buddy
+        Language learning bot
       </h1>
       <p className="mt-4 text-lg text-stone-700">
         Practise a language by role-playing real situations, like ordering at a café or asking

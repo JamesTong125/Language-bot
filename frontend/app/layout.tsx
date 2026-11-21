@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Language Immersion Buddy",
+  title: "Language learning bot",
   description: "Practise a language through role-play, with gentle corrections.",
 };
 

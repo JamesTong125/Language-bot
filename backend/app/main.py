@@ -13,7 +13,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
 
-    app = FastAPI(title="Language Immersion Buddy API", version="0.1.0")
+    app = FastAPI(title="Language learning bot API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.cors_origin],

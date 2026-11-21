@@ -1,4 +1,4 @@
-# Language Immersion Buddy
+# Language learning bot
 
 Practise a language by role-playing real situations with an AI partner. Order coffee, check
 into a hotel, or get through a job interview. You get gentle corrections after every message,

@@ -1,6 +1,6 @@
 # Development guide
 
-Technical details for working on Language Immersion Buddy. For what the app does and how to
+Technical details for working on Language learning bot. For what the app does and how to
 start it, see the [README](../README.md). Design decisions are logged in
 [decisions.md](decisions.md).
 
