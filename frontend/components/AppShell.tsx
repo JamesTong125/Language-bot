@@ -73,7 +73,7 @@ export function AppShell({ requireProfile = true, children }: Props) {
       <header className="border-b border-stone-200 bg-white">
         <nav aria-label="Main" className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-1 gap-y-2 px-4 py-3 sm:gap-x-4">
           <Link href="/home" className="mr-auto text-lg font-bold text-teal-800">
-            Immersion Buddy
+            Language learning bot
           </Link>
           {navLinks.map((link) => (
             <Link
