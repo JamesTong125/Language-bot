@@ -214,13 +214,13 @@ and the severity is also given in text for screen readers. Chips are buttons wit
 `backend/tests/test_scheduler.py` is the specification; the API test replays ratings through
 `POST /vocab/{id}/review` and checks each result against `schedule`.
 
-### D31. Two columns added to `vocab_items` (data model change)
+### D31. Two columns added to `vocab_items` (data model change) (approved)
 - `session_id` (nullable, `ON DELETE SET NULL`): the session whose wrap-up created the card.
   The summary page lists "the new vocab items" of a session, which the spec's fields can't
   express: words the partner used have no `source_correction_id`.
 - `created_at`, for sorting the deck newest first.
 Also a unique index on `(learner_profile_id, lower(term))` as a safety net under the
-application-level deduplication (D34). **Please confirm or say if you'd prefer otherwise.**
+application-level deduplication (D34).
 
 ### D32. Wrap-up output and storage
 One call to the analysis model (`wrapup_v1`) returns a flat JSON object:
